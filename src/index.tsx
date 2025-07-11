@@ -34,6 +34,16 @@ app.use(
 app.use(renderer);
 app.use(prettyJSON());
 
+app.use(async (c, next) => {
+	const { method, url } = c.req;
+	const ip =
+		c.req.header("CF-Connecting-IP") ||
+		c.req.header("x-forwarded-for") ||
+		"unknown";
+	console.log(`[${new Date().toISOString()}] ${method} ${url} from IP: ${ip}`);
+	await next();
+});
+
 app.get("/", (c) => {
 	return c.render(<h1>Kronilo Worker - Cron Expression Translator</h1>);
 });
