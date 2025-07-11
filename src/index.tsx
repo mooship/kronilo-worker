@@ -210,6 +210,14 @@ app.get("/openrouter/rate-limit", async (c) => {
 			},
 		});
 
+		if (!res.ok) {
+			const errorBody = await res.text();
+			return new Response(errorBody, {
+				status: res.status,
+				headers: { "Content-Type": "application/json" },
+			});
+		}
+
 		const rateLimitHeaders = {
 			"x-ratelimit-limit": res.headers.get("x-ratelimit-limit"),
 			"x-ratelimit-remaining": res.headers.get("x-ratelimit-remaining"),
