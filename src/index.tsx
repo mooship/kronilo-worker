@@ -1,8 +1,4 @@
-import {
-	type CacheStorage,
-	type Console,
-	Response,
-} from "@cloudflare/workers-types";
+import type { CacheStorage, Console } from "@cloudflare/workers-types";
 
 declare const caches: CacheStorage;
 
@@ -219,6 +215,8 @@ app.post("/api/translate", async (c) => {
 
 // biome-ignore lint/suspicious/noExplicitAny: Cloudflare Workers global
 declare var Request: any;
+// biome-ignore lint/suspicious/noExplicitAny: Cloudflare Workers global
+declare var Response: any;
 declare var console: Console;
 
 export default app;
