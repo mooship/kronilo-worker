@@ -73,7 +73,10 @@ app.post("/api/translate", async (c) => {
 		}
 
 		const { input = "" } = await c.req.json<{ input?: string }>();
-		let trimmedInput = input.trim();
+		let trimmedInput = input
+			.trim()
+			.toLowerCase()
+			.replace(WHITESPACE_REGEX, " ");
 		if (trimmedInput.length > 200) {
 			return c.json(
 				{ error: "Input too long (max 200 characters)" } satisfies ApiError,
@@ -116,58 +119,44 @@ app.post("/api/translate", async (c) => {
 			},
 		});
 
-		const models = [
-			"google/gemma-3n-e2b-it:free",
-			"mistralai/mistral-7b-instruct:free",
-			"google/gemma-3-27b-it:free",
-		];
+		const model = "google/gemma-3n-e2b-it:free";
 
-		const triedModels: string[] = [];
-		for (const model of models) {
-			triedModels.push(model);
-			try {
-				const response = await openai.chat.completions.create({
-					model,
-					messages: [
-						{ role: "system", content: SYSTEM_PROMPT },
-						{ role: "user", content: trimmedInput },
-					],
-					max_tokens: 50,
-					temperature: 0.1,
-				});
-
-				const output = response.choices?.[0]?.message?.content?.trim() ?? "";
-
-				if (isValidCron(output)) {
-					const result: ApiSuccess = {
-						cron: output,
-						model: model,
-						input: trimmedInput,
-					};
-					c.executionCtx.waitUntil(
-						cache.put(
-							cacheKey,
-							new Response(JSON.stringify(result), {
-								headers: {
-									"Content-Type": "application/json",
-									"Cache-Control": "max-age=86400",
-									"X-Content-Type-Options": "nosniff",
-									"X-Frame-Options": "DENY",
-								},
-							}),
-						),
-					);
-					return c.json(result satisfies ApiSuccess);
-				}
-			} catch (err) {
-				console.error(`Model ${model} failed:`, err);
-			}
+		const response = await openai.chat.completions.create({
+			model,
+			messages: [
+				{ role: "system", content: SYSTEM_PROMPT },
+				{ role: "user", content: trimmedInput },
+			],
+			max_tokens: 50,
+			temperature: 0,
+		});
+		const output = response.choices?.[0]?.message?.content?.trim() ?? "";
+		if (isValidCron(output)) {
+			const result: ApiSuccess = {
+				cron: output,
+				model,
+				input: trimmedInput,
+			};
+			c.executionCtx.waitUntil(
+				cache.put(
+					cacheKey,
+					new Response(JSON.stringify(result), {
+						headers: {
+							"Content-Type": "application/json",
+							"Cache-Control": "max-age=86400",
+							"X-Content-Type-Options": "nosniff",
+							"X-Frame-Options": "DENY",
+						},
+					}),
+				),
+			);
+			return c.json(result satisfies ApiSuccess);
 		}
 
 		return c.json(
 			{
 				error: "Could not translate input to a valid cron expression",
-				details: { input: trimmedInput, triedModels },
+				details: { input: trimmedInput, triedModels: [model] },
 			} satisfies ApiError,
 			400,
 		);
@@ -187,3 +176,5 @@ declare var Response: any;
 declare var console: Console;
 
 export default app;
+
+const WHITESPACE_REGEX = /\s+/g;
