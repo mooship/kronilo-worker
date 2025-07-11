@@ -59,8 +59,10 @@ app.get("/health", (c) => {
 	});
 });
 
-const PRIMARY_MODEL = "google/gemma-3n-e4b-it:free";
-const BACKUP_MODEL = "meta-llama/llama-3.2-3b-instruct:free";
+const MODELS = [
+	"google/gemma-3n-e4b-it:free",
+	"meta-llama/llama-3.2-3b-instruct:free",
+];
 const WHITESPACE_REGEX = /\s+/g;
 
 app.post("/api/translate", async (c) => {
@@ -123,8 +125,8 @@ app.post("/api/translate", async (c) => {
 			},
 		});
 
-		const models = [PRIMARY_MODEL, BACKUP_MODEL];
-		const modelPromises = models.map(async (model) => {
+		let result: ApiSuccess | null = null;
+		for (const model of MODELS) {
 			try {
 				const response = await openai.chat.completions.create({
 					model,
@@ -137,22 +139,19 @@ app.post("/api/translate", async (c) => {
 				});
 				const output = response.choices?.[0]?.message?.content?.trim() ?? "";
 				if (isValidCron(output)) {
-					return { model, output };
+					result = {
+						cron: output,
+						model,
+						input: trimmedInput,
+					};
+					break;
 				}
 			} catch (err) {
 				console.error(`Model ${model} failed:`, err);
 			}
-			return null;
-		});
+		}
 
-		const results = await Promise.all(modelPromises);
-		const valid = results.find((r) => r?.output);
-		if (valid) {
-			const result: ApiSuccess = {
-				cron: valid.output,
-				model: valid.model,
-				input: trimmedInput,
-			};
+		if (result) {
 			c.executionCtx.waitUntil(
 				cache.put(
 					cacheKey,
@@ -172,7 +171,7 @@ app.post("/api/translate", async (c) => {
 		return c.json(
 			{
 				error: "Could not translate input to a valid cron expression",
-				details: { input: trimmedInput, triedModels: models },
+				details: { input: trimmedInput, triedModels: MODELS },
 			} satisfies ApiError,
 			400,
 		);
