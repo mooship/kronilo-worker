@@ -59,6 +59,10 @@ app.get("/health", (c) => {
 	});
 });
 
+const PRIMARY_MODEL = "google/gemma-3n-e2b-it:free";
+const BACKUP_MODEL = "mistralai/mistral-7b-instruct:free";
+const WHITESPACE_REGEX = /\s+/g;
+
 app.post("/api/translate", async (c) => {
 	try {
 		const OPENROUTER_API_KEY = c.env.OPENROUTER_API_KEY;
@@ -119,22 +123,34 @@ app.post("/api/translate", async (c) => {
 			},
 		});
 
-		const model = "google/gemma-3n-e2b-it:free";
-
-		const response = await openai.chat.completions.create({
-			model,
-			messages: [
-				{ role: "system", content: SYSTEM_PROMPT },
-				{ role: "user", content: trimmedInput },
-			],
-			max_tokens: 50,
-			temperature: 0,
+		const models = [PRIMARY_MODEL, BACKUP_MODEL];
+		const modelPromises = models.map(async (model) => {
+			try {
+				const response = await openai.chat.completions.create({
+					model,
+					messages: [
+						{ role: "system", content: SYSTEM_PROMPT },
+						{ role: "user", content: trimmedInput },
+					],
+					max_tokens: 50,
+					temperature: 0,
+				});
+				const output = response.choices?.[0]?.message?.content?.trim() ?? "";
+				if (isValidCron(output)) {
+					return { model, output };
+				}
+			} catch (err) {
+				console.error(`Model ${model} failed:`, err);
+			}
+			return null;
 		});
-		const output = response.choices?.[0]?.message?.content?.trim() ?? "";
-		if (isValidCron(output)) {
+
+		const results = await Promise.all(modelPromises);
+		const valid = results.find((r) => r?.output);
+		if (valid) {
 			const result: ApiSuccess = {
-				cron: output,
-				model,
+				cron: valid.output,
+				model: valid.model,
 				input: trimmedInput,
 			};
 			c.executionCtx.waitUntil(
@@ -156,7 +172,7 @@ app.post("/api/translate", async (c) => {
 		return c.json(
 			{
 				error: "Could not translate input to a valid cron expression",
-				details: { input: trimmedInput, triedModels: [model] },
+				details: { input: trimmedInput, triedModels: models },
 			} satisfies ApiError,
 			400,
 		);
@@ -176,5 +192,3 @@ declare var Response: any;
 declare var console: Console;
 
 export default app;
-
-const WHITESPACE_REGEX = /\s+/g;
