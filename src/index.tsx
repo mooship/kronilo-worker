@@ -67,11 +67,7 @@ app.get("/health", (c) => {
 });
 
 const CACHE_VERSION = "v2";
-const MODELS = [
-	"google/gemma-3n-e4b-it:free",
-	"meta-llama/llama-3.2-3b-instruct:free",
-	"mistralai/mistral-7b-instruct:free",
-];
+const MODELS = ["mistralai/devstral-small-2505:free"];
 const WHITESPACE_REGEX = /\s+/g;
 
 app.post("/api/translate", async (c) => {
