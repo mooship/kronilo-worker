@@ -212,10 +212,14 @@ app.get("/openrouter/rate-limit", async (c) => {
 
 		if (!res.ok) {
 			const errorBody = await res.text();
-			return new Response(errorBody, {
-				status: res.status,
-				headers: { "Content-Type": "application/json" },
-			});
+			return c.json(
+				{
+					rateLimited: true,
+					status: res.status,
+					details: errorBody,
+				},
+				200,
+			);
 		}
 
 		const rateLimitHeaders = {
@@ -225,16 +229,14 @@ app.get("/openrouter/rate-limit", async (c) => {
 			"x-ratelimit-used": res.headers.get("x-ratelimit-used"),
 		};
 
-		return new Response(
-			JSON.stringify({
+		return c.json(
+			{
+				rateLimited: false,
 				status: res.status,
 				ok: res.ok,
 				rateLimit: rateLimitHeaders,
-			}),
-			{
-				status: res.status,
-				headers: { "Content-Type": "application/json" },
 			},
+			200,
 		);
 	} catch (err) {
 		if (err instanceof HTTPError && err.response) {
