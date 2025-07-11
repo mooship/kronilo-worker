@@ -6,11 +6,15 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { prettyJSON } from "hono/pretty-json";
 import { OpenAI } from "openai";
+import {
+	checkRateLimit,
+	RATE_LIMIT_MAX,
+	RATE_LIMIT_WINDOW,
+	rateLimitMap,
+} from "./rateLimit";
 import { renderer } from "./renderer";
-
-type Bindings = {
-	OPENROUTER_API_KEY: string;
-};
+import type { ApiCache, ApiError, ApiSuccess, Bindings } from "./types";
+import { isValidCron, SYSTEM_PROMPT, sanitizeInput } from "./utils";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -29,68 +33,20 @@ app.use(
 app.use(renderer);
 app.use(prettyJSON());
 
-const SYSTEM_PROMPT = `
-You are a utility that translates plain English into valid Unix cron expressions.
-
-Only respond with a valid 5-field cron expression in this format:
-* * * * *
-
-Do not add any explanation or extra text.
-`.trim();
-
-const sanitizeInput = (input: string) =>
-	Array.from(input)
-		.filter((c) => c >= " " && c !== "\x7F")
-		.join("");
-
-function isValidCron(cron: string): boolean {
-	const cronRegex =
-		/^((\*|\d{1,2}|\d{1,2}-\d{1,2}|\*\/\d{1,2}|\d{1,2}-\d{1,2}\/\d{1,2}|\d{1,2}\/\d{1,2})\s+){4}(\*|\d{1,2}|\d{1,2}-\d{1,2}|\*\/\d{1,2}|\d{1,2}-\d{1,2}\/\d{1,2}|\d{1,2}\/\d{1,2})$/;
-	return cronRegex.test(cron.trim());
-}
-
 app.get("/", (c) => {
 	return c.render(<h1>Kronilo Worker - Cron Expression Translator</h1>);
 });
 
 app.get("/health", (c) => {
-	return c.json({ status: "ok" });
+	return c.json({
+		status: "ok",
+		rateLimit: {
+			max: RATE_LIMIT_MAX,
+			windowMs: RATE_LIMIT_WINDOW,
+			currentUsage: rateLimitMap.size,
+		},
+	});
 });
-
-interface ApiError {
-	error: string;
-	details?: unknown;
-}
-
-interface ApiSuccess {
-	cron: string;
-	model: string;
-	input: string;
-}
-
-interface ApiCache {
-	cron: string;
-	model: string;
-	input: string;
-}
-
-const RATE_LIMIT_MAX = 20;
-const RATE_LIMIT_WINDOW = 5 * 60 * 1000;
-const rateLimitMap = new Map<string, { count: number; last: number }>();
-function checkRateLimit(ip: string): boolean {
-	const now = Date.now();
-	const entry = rateLimitMap.get(ip);
-	if (!entry || now - entry.last > RATE_LIMIT_WINDOW) {
-		rateLimitMap.set(ip, { count: 1, last: now });
-		return true;
-	}
-	if (entry.count >= RATE_LIMIT_MAX) {
-		return false;
-	}
-	entry.count++;
-	entry.last = now;
-	return true;
-}
 
 app.post("/api/translate", async (c) => {
 	try {

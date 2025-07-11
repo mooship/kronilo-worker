@@ -1,11 +1,11 @@
 {
-    "name": "kronilo",
-    "main": "./src/index.tsx",
-    "compatibility_date": "2025-07-11",
-    "observability": {
-        "logs": {
-            "enabled": true,
-            "head_sampling_rate": 0.1
-        }
-    }
+	"name": "kronilo",
+	"main": "./src/index.tsx",
+	"compatibility_date": "2025-07-11",
+	"observability": {
+		"logs": {
+			"enabled": true,
+			"head_sampling_rate": 0.1
+		}
+	}
 }
