@@ -5,7 +5,7 @@ declare const caches: CacheStorage;
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { prettyJSON } from "hono/pretty-json";
-import ky from "ky";
+import ky, { HTTPError } from "ky";
 import { OpenAI } from "openai";
 import {
 	checkRateLimit,
@@ -229,6 +229,13 @@ app.get("/openrouter/rate-limit", async (c) => {
 			},
 		);
 	} catch (err) {
+		if (err instanceof HTTPError && err.response) {
+			const errorBody = await err.response.text();
+			return new Response(errorBody, {
+				status: err.response.status,
+				headers: { "Content-Type": "application/json" },
+			});
+		}
 		console.error("Error checking OpenRouter rate limit:", err);
 		return c.json(
 			{
