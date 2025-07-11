@@ -1,14 +1,11 @@
-import {
-	type CacheStorage,
-	type Console,
-	fetch,
-} from "@cloudflare/workers-types";
+import type { CacheStorage, Console } from "@cloudflare/workers-types";
 
 declare const caches: CacheStorage;
 
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { prettyJSON } from "hono/pretty-json";
+import ky from "ky";
 import { OpenAI } from "openai";
 import {
 	checkRateLimit,
@@ -159,7 +156,6 @@ app.post("/api/translate", async (c) => {
 			}
 		});
 
-		// Wait for all requests to complete and find the first valid result
 		const results = await Promise.all(modelPromises);
 		result = results.find((r) => r !== null) || null;
 
@@ -208,23 +204,22 @@ app.get("/openrouter/rate-limit", async (c) => {
 	}
 
 	try {
-		const response = await fetch("https://openrouter.ai/api/v1/models", {
-			method: "GET",
+		const res = await ky.get("https://openrouter.ai/api/v1/models", {
 			headers: {
 				Authorization: `Bearer ${OPENROUTER_API_KEY}`,
 			},
 		});
 
 		const rateLimitHeaders = {
-			"x-ratelimit-limit": response.headers.get("x-ratelimit-limit"),
-			"x-ratelimit-remaining": response.headers.get("x-ratelimit-remaining"),
-			"x-ratelimit-reset": response.headers.get("x-ratelimit-reset"),
-			"x-ratelimit-used": response.headers.get("x-ratelimit-used"),
+			"x-ratelimit-limit": res.headers.get("x-ratelimit-limit"),
+			"x-ratelimit-remaining": res.headers.get("x-ratelimit-remaining"),
+			"x-ratelimit-reset": res.headers.get("x-ratelimit-reset"),
+			"x-ratelimit-used": res.headers.get("x-ratelimit-used"),
 		};
 
 		return c.json({
-			status: response.status,
-			ok: response.ok,
+			status: res.status,
+			ok: res.ok,
 			rateLimit: rateLimitHeaders,
 		});
 	} catch (err) {
