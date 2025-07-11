@@ -18,3 +18,12 @@ export interface ApiCache {
 	model: string;
 	input: string;
 }
+
+export interface OpenRouterKeyResponse {
+	data?: {
+		label?: string;
+		usage?: number;
+		limit?: number | null;
+		is_free_tier?: boolean;
+	};
+}

@@ -14,7 +14,13 @@ import {
 	rateLimitMap,
 } from "./rateLimit";
 import { renderer } from "./renderer";
-import type { ApiCache, ApiError, ApiSuccess, Bindings } from "./types";
+import type {
+	ApiCache,
+	ApiError,
+	ApiSuccess,
+	Bindings,
+	OpenRouterKeyResponse,
+} from "./types";
 import { isValidCron, SYSTEM_PROMPT, sanitizeInput } from "./utils";
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -204,23 +210,11 @@ app.get("/openrouter/rate-limit", async (c) => {
 	}
 
 	try {
-		const res = await ky.get("https://openrouter.ai/api/v1/models", {
+		const res = await ky.get("https://openrouter.ai/api/v1/auth/key", {
 			headers: {
 				Authorization: `Bearer ${OPENROUTER_API_KEY}`,
 			},
 		});
-
-		if (!res.ok) {
-			const errorBody = await res.text();
-			return c.json(
-				{
-					rateLimited: true,
-					status: res.status,
-					details: errorBody,
-				},
-				200,
-			);
-		}
 
 		const rateLimitHeaders = {
 			"x-ratelimit-limit": res.headers.get("x-ratelimit-limit"),
@@ -229,12 +223,54 @@ app.get("/openrouter/rate-limit", async (c) => {
 			"x-ratelimit-used": res.headers.get("x-ratelimit-used"),
 		};
 
+		if (res.status === 429) {
+			const errorBody = await res.text();
+			return c.json(
+				{
+					rateLimited: true,
+					status: res.status,
+					details: errorBody,
+					rateLimit: rateLimitHeaders,
+				},
+				200,
+			);
+		}
+
+		if (res.status === 402) {
+			const errorBody = await res.text();
+			return c.json(
+				{
+					rateLimited: true,
+					status: res.status,
+					details: errorBody,
+					rateLimit: rateLimitHeaders,
+				},
+				200,
+			);
+		}
+
+		if (!res.ok) {
+			const errorBody = await res.text();
+			return c.json(
+				{
+					error: "Unexpected error",
+					status: res.status,
+					details: errorBody,
+				},
+				500,
+			);
+		}
+
+		const data: OpenRouterKeyResponse = await res.json();
 		return c.json(
 			{
 				rateLimited: false,
 				status: res.status,
 				ok: res.ok,
 				rateLimit: rateLimitHeaders,
+				credits: data.data?.limit ?? null,
+				usage: data.data?.usage ?? null,
+				isFreeTier: data.data?.is_free_tier ?? null,
 			},
 			200,
 		);
