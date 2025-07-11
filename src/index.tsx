@@ -217,11 +217,17 @@ app.get("/openrouter/rate-limit", async (c) => {
 			"x-ratelimit-used": res.headers.get("x-ratelimit-used"),
 		};
 
-		return c.json({
-			status: res.status,
-			ok: res.ok,
-			rateLimit: rateLimitHeaders,
-		});
+		return new Response(
+			JSON.stringify({
+				status: res.status,
+				ok: res.ok,
+				rateLimit: rateLimitHeaders,
+			}),
+			{
+				status: res.status,
+				headers: { "Content-Type": "application/json" },
+			},
+		);
 	} catch (err) {
 		console.error("Error checking OpenRouter rate limit:", err);
 		return c.json(
