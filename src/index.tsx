@@ -262,9 +262,15 @@ app.get("/openrouter/rate-limit", async (c) => {
 		}
 
 		const data: OpenRouterKeyResponse = await res.json();
+		const isRateLimited =
+			typeof data.data?.limit === "number" &&
+			typeof data.data?.usage === "number"
+				? data.data.usage >= data.data.limit
+				: false;
+
 		return c.json(
 			{
-				rateLimited: false,
+				rateLimited: isRateLimited,
 				status: res.status,
 				ok: res.ok,
 				rateLimit: rateLimitHeaders,
