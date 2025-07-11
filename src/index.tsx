@@ -59,8 +59,8 @@ app.get("/health", (c) => {
 	});
 });
 
-const PRIMARY_MODEL = "google/gemma-3n-e2b-it:free";
-const BACKUP_MODEL = "mistralai/mistral-7b-instruct:free";
+const PRIMARY_MODEL = "google/gemma-3n-e4b-it:free";
+const BACKUP_MODEL = "meta-llama/llama-3.2-3b-instruct:free";
 const WHITESPACE_REGEX = /\s+/g;
 
 app.post("/api/translate", async (c) => {
