@@ -1,4 +1,8 @@
-import type { CacheStorage, Console } from "@cloudflare/workers-types";
+import {
+	type CacheStorage,
+	type Console,
+	fetch,
+} from "@cloudflare/workers-types";
 
 declare const caches: CacheStorage;
 
@@ -59,6 +63,7 @@ app.get("/health", (c) => {
 	});
 });
 
+const CACHE_VERSION = "v2";
 const MODELS = [
 	"google/gemma-3n-e4b-it:free",
 	"meta-llama/llama-3.2-3b-instruct:free",
@@ -107,7 +112,7 @@ app.post("/api/translate", async (c) => {
 		}
 
 		const cacheKey = new Request(
-			`https://cache.kronilo/translate?input=${encodeURIComponent(trimmedInput)}`,
+			`https://cache.kronilo/translate?version=${CACHE_VERSION}&input=${encodeURIComponent(trimmedInput)}`,
 		);
 		const cache = caches.default;
 		const cached = await cache.match(cacheKey);
@@ -165,7 +170,7 @@ app.post("/api/translate", async (c) => {
 					new Response(JSON.stringify(result), {
 						headers: {
 							"Content-Type": "application/json",
-							"Cache-Control": "max-age=86400",
+							"Cache-Control": "max-age=604800",
 							"X-Content-Type-Options": "nosniff",
 							"X-Frame-Options": "DENY",
 						},
@@ -186,6 +191,49 @@ app.post("/api/translate", async (c) => {
 		console.error("Error in /api/translate:", err);
 		return c.json(
 			{ error: "Internal server error", details: err } satisfies ApiError,
+			500,
+		);
+	}
+});
+
+app.get("/openrouter/rate-limit", async (c) => {
+	const OPENROUTER_API_KEY = c.env.OPENROUTER_API_KEY;
+	if (!OPENROUTER_API_KEY) {
+		return c.json(
+			{
+				error: "Missing OPENROUTER_API_KEY environment variable",
+			} satisfies ApiError,
+			500,
+		);
+	}
+
+	try {
+		const response = await fetch("https://openrouter.ai/api/v1/models", {
+			method: "GET",
+			headers: {
+				Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+			},
+		});
+
+		const rateLimitHeaders = {
+			"x-ratelimit-limit": response.headers.get("x-ratelimit-limit"),
+			"x-ratelimit-remaining": response.headers.get("x-ratelimit-remaining"),
+			"x-ratelimit-reset": response.headers.get("x-ratelimit-reset"),
+			"x-ratelimit-used": response.headers.get("x-ratelimit-used"),
+		};
+
+		return c.json({
+			status: response.status,
+			ok: response.ok,
+			rateLimit: rateLimitHeaders,
+		});
+	} catch (err) {
+		console.error("Error checking OpenRouter rate limit:", err);
+		return c.json(
+			{
+				error: "Failed to check OpenRouter rate limit",
+				details: err,
+			} satisfies ApiError,
 			500,
 		);
 	}
