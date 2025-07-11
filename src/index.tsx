@@ -1,8 +1,4 @@
-import {
-	type CacheStorage,
-	Request,
-	Response,
-} from "@cloudflare/workers-types";
+import { type CacheStorage, Response } from "@cloudflare/workers-types";
 
 declare const caches: CacheStorage;
 
@@ -140,5 +136,8 @@ app.post("/api/translate", async (c) => {
 		return c.json({ error: "Internal server error" }, 500);
 	}
 });
+
+// biome-ignore lint/suspicious/noExplicitAny: Cloudflare Workers global
+declare var Request: any;
 
 export default app;
