@@ -62,6 +62,7 @@ app.get("/health", (c) => {
 const MODELS = [
 	"google/gemma-3n-e4b-it:free",
 	"meta-llama/llama-3.2-3b-instruct:free",
+	"mistralai/mistral-7b-instruct:free",
 ];
 const WHITESPACE_REGEX = /\s+/g;
 
@@ -126,7 +127,8 @@ app.post("/api/translate", async (c) => {
 		});
 
 		let result: ApiSuccess | null = null;
-		for (const model of MODELS) {
+
+		const modelPromises = MODELS.map(async (model) => {
 			try {
 				const response = await openai.chat.completions.create({
 					model,
@@ -139,17 +141,22 @@ app.post("/api/translate", async (c) => {
 				});
 				const output = response.choices?.[0]?.message?.content?.trim() ?? "";
 				if (isValidCron(output)) {
-					result = {
+					return {
 						cron: output,
 						model,
 						input: trimmedInput,
-					};
-					break;
+					} satisfies ApiSuccess;
 				}
+				return null;
 			} catch (err) {
 				console.error(`Model ${model} failed:`, err);
+				return null;
 			}
-		}
+		});
+
+		// Wait for all requests to complete and find the first valid result
+		const results = await Promise.all(modelPromises);
+		result = results.find((r) => r !== null) || null;
 
 		if (result) {
 			c.executionCtx.waitUntil(
