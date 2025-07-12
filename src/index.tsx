@@ -5,22 +5,17 @@ declare const caches: CacheStorage;
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { prettyJSON } from "hono/pretty-json";
-import ky, { HTTPError } from "ky";
 import { OpenAI } from "openai";
 import {
 	checkRateLimit,
+	DAILY_API_LIMIT,
+	getDailyUsage,
 	RATE_LIMIT_MAX,
 	RATE_LIMIT_WINDOW,
 	rateLimitMap,
 } from "./rateLimit";
 import { renderer } from "./renderer";
-import type {
-	ApiCache,
-	ApiError,
-	ApiSuccess,
-	Bindings,
-	OpenRouterKeyResponse,
-} from "./types";
+import type { ApiCache, ApiError, ApiSuccess, Bindings } from "./types";
 import { processInput, SYSTEM_PROMPT, validateApiResponse } from "./utils";
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -55,13 +50,22 @@ app.get("/", (c) => {
 	return c.render(<h1>Kronilo - Cron Expression Translator</h1>);
 });
 
-app.get("/health", (c) => {
+app.get("/health", async (c) => {
+	const dailyUsage = await getDailyUsage(c.env.RATE_LIMIT_KV);
 	return c.json({
 		status: "ok",
 		rateLimit: {
-			max: RATE_LIMIT_MAX,
-			windowMs: RATE_LIMIT_WINDOW,
-			currentUsage: rateLimitMap.size,
+			perUser: {
+				max: RATE_LIMIT_MAX,
+				windowMs: RATE_LIMIT_WINDOW,
+				currentUsers: rateLimitMap.size,
+			},
+			daily: {
+				limit: DAILY_API_LIMIT,
+				used: dailyUsage.count,
+				remaining: dailyUsage.remaining,
+				date: dailyUsage.date,
+			},
 		},
 	});
 });
@@ -98,9 +102,25 @@ app.post("/api/translate", async (c) => {
 			c.req.header("CF-Connecting-IP") ||
 			c.req.header("x-forwarded-for") ||
 			"unknown";
-		if (!checkRateLimit(ip)) {
+		if (!(await checkRateLimit(ip, c.env.RATE_LIMIT_KV))) {
+			const dailyUsage = await getDailyUsage(c.env.RATE_LIMIT_KV);
+			const isDailyLimit = dailyUsage.remaining <= 0;
+			const errorMessage = isDailyLimit
+				? "Daily API limit reached. Please try again tomorrow."
+				: "Rate limit exceeded. Please try again later.";
+
 			return c.json(
-				{ error: "Rate limit exceeded. Try again later." } satisfies ApiError,
+				{
+					error: errorMessage,
+					rateLimitType: isDailyLimit ? "daily" : "perUser",
+					details: {
+						daily: dailyUsage,
+						perUser: {
+							maxPerHour: RATE_LIMIT_MAX,
+							windowMs: RATE_LIMIT_WINDOW,
+						},
+					},
+				} satisfies ApiError,
 				429,
 			);
 		}
@@ -204,107 +224,6 @@ app.post("/api/translate", async (c) => {
 		console.error("Error in /api/translate:", err);
 		return c.json(
 			{ error: "Internal server error", details: err } satisfies ApiError,
-			500,
-		);
-	}
-});
-
-app.get("/openrouter/rate-limit", async (c) => {
-	const OPENROUTER_API_KEY = c.env.OPENROUTER_API_KEY;
-	if (!OPENROUTER_API_KEY) {
-		return c.json(
-			{
-				error: "Missing OPENROUTER_API_KEY environment variable",
-			} satisfies ApiError,
-			500,
-		);
-	}
-
-	try {
-		const res = await ky.get("https://openrouter.ai/api/v1/auth/key", {
-			headers: {
-				Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-			},
-		});
-
-		const rateLimitHeaders = {
-			"x-ratelimit-limit": res.headers.get("x-ratelimit-limit"),
-			"x-ratelimit-remaining": res.headers.get("x-ratelimit-remaining"),
-			"x-ratelimit-reset": res.headers.get("x-ratelimit-reset"),
-			"x-ratelimit-used": res.headers.get("x-ratelimit-used"),
-		};
-
-		if (res.status === 429) {
-			const errorBody = await res.text();
-			return c.json(
-				{
-					rateLimited: true,
-					status: res.status,
-					details: errorBody,
-					rateLimit: rateLimitHeaders,
-				},
-				200,
-			);
-		}
-
-		if (res.status === 402) {
-			const errorBody = await res.text();
-			return c.json(
-				{
-					rateLimited: true,
-					status: res.status,
-					details: errorBody,
-					rateLimit: rateLimitHeaders,
-				},
-				200,
-			);
-		}
-
-		if (!res.ok) {
-			const errorBody = await res.text();
-			return c.json(
-				{
-					error: "Unexpected error",
-					status: res.status,
-					details: errorBody,
-				},
-				500,
-			);
-		}
-
-		const data: OpenRouterKeyResponse = await res.json();
-		const isRateLimited =
-			typeof data.data?.limit === "number" &&
-			typeof data.data?.usage === "number"
-				? data.data.usage >= data.data.limit
-				: false;
-
-		return c.json(
-			{
-				rateLimited: isRateLimited,
-				status: res.status,
-				ok: res.ok,
-				rateLimit: rateLimitHeaders,
-				credits: data.data?.limit ?? null,
-				usage: data.data?.usage ?? null,
-				isFreeTier: data.data?.is_free_tier ?? null,
-			},
-			200,
-		);
-	} catch (err) {
-		if (err instanceof HTTPError && err.response) {
-			const errorBody = await err.response.text();
-			return new Response(errorBody, {
-				status: err.response.status,
-				headers: { "Content-Type": "application/json" },
-			});
-		}
-		console.error("Error checking OpenRouter rate limit:", err);
-		return c.json(
-			{
-				error: "Failed to check OpenRouter rate limit",
-				details: err,
-			} satisfies ApiError,
 			500,
 		);
 	}
