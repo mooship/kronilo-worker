@@ -18,8 +18,16 @@ import { renderer } from "./renderer";
 import type { ApiCache, ApiError, ApiSuccess, Bindings } from "./types";
 import { processInput, SYSTEM_PROMPT, validateApiResponse } from "./utils";
 
+/**
+ * Main Hono application instance for the Kronilo cron translation service.
+ * Configured with Cloudflare Workers bindings for KV storage and environment variables.
+ */
 const app = new Hono<{ Bindings: Bindings }>();
 
+/**
+ * Configure CORS middleware to allow requests from approved origins.
+ * Permits access from production domains and local development.
+ */
 app.use(
 	"/*",
 	cors({
@@ -36,6 +44,10 @@ app.use(
 app.use(renderer);
 app.use(prettyJSON());
 
+/**
+ * Request logging middleware that captures method, URL, and client IP.
+ * Logs all incoming requests with timestamp for monitoring and debugging.
+ */
 app.use(async (c, next) => {
 	const { method, url } = c.req;
 	const ip =
@@ -46,10 +58,17 @@ app.use(async (c, next) => {
 	await next();
 });
 
+/**
+ * Root endpoint that returns a simple HTML page identifying the service.
+ */
 app.get("/", (c) => {
 	return c.render(<h1>Kronilo - Cron Expression Translator</h1>);
 });
 
+/**
+ * Health check endpoint that provides service status and rate limit information.
+ * Returns current rate limiting stats including per-user and daily usage data.
+ */
 app.get("/health", async (c) => {
 	if (!c.env.RATE_LIMIT_KV) {
 		return c.json(
@@ -79,9 +98,41 @@ app.get("/health", async (c) => {
 	});
 });
 
-const CACHE_VERSION = "v3";
-const MODEL = "google/gemma-3-27b-it:free";
+/**
+ * Cache version identifier for API responses.
+ * Increment this when cache invalidation is needed due to logic changes.
+ */
+const CACHE_VERSION = "v4";
 
+/**
+ * Primary AI model for cron expression translation via OpenRouter.
+ * Google Gemma 3 27B Instruct - A high-quality instruction-following model
+ * optimized for precise, structured outputs like cron expressions.
+ * Uses the free tier to minimize costs while maintaining reliability.
+ */
+const PRIMARY_MODEL = "google/gemma-3-27b-it:free";
+
+/**
+ * Backup AI model used when the primary model fails or is unavailable.
+ * Qwen 3 14B - Alibaba's mid-size language model with strong reasoning capabilities.
+ * Provides a different model architecture as fallback to increase success rate
+ * when the primary Google model encounters issues or rate limits.
+ */
+const BACKUP_MODEL = "qwen/qwen3-14b:free";
+
+/**
+ * Main API endpoint for translating plain English input to cron expressions.
+ *
+ * Features:
+ * - Rate limiting (per-user and daily limits)
+ * - Response caching for identical inputs
+ * - Retry logic with primary and backup AI models
+ * - Input validation and sanitization
+ * - Comprehensive error handling
+ *
+ * @param c - Hono context containing request data and environment bindings
+ * @returns JSON response with cron expression or error details
+ */
 app.post("/api/translate", async (c) => {
 	try {
 		const OPENROUTER_API_KEY = c.env.OPENROUTER_API_KEY;
@@ -154,16 +205,31 @@ app.post("/api/translate", async (c) => {
 			},
 		});
 
-		const makeApiCall = async (attempt: number): Promise<ApiSuccess> => {
-			const response = await openai.chat.completions.create({
-				model: MODEL,
-				messages: [
-					{ role: "system", content: SYSTEM_PROMPT },
-					{ role: "user", content: trimmedInput },
-				],
-				max_tokens: 50,
-				temperature: attempt > 1 ? 0.1 : 0,
-			});
+		/**
+		 * Makes an API call to the specified AI model for cron translation.
+		 * @param model - The AI model identifier to use
+		 * @param attempt - The attempt number (affects temperature setting)
+		 * @returns Promise resolving to a successful API response
+		 * @throws Error if the model returns an invalid response
+		 */
+		const makeApiCall = async (
+			model: string,
+			attempt: number,
+		): Promise<ApiSuccess> => {
+			const response = await openai.chat.completions.create(
+				{
+					model,
+					messages: [
+						{ role: "system", content: SYSTEM_PROMPT },
+						{ role: "user", content: trimmedInput },
+					],
+					max_tokens: 50,
+					temperature: attempt > 1 ? 0.1 : 0,
+				},
+				{
+					timeout: 7_000,
+				},
+			);
 
 			const output = response.choices?.[0]?.message?.content?.trim() ?? "";
 
@@ -174,27 +240,37 @@ app.post("/api/translate", async (c) => {
 
 			return {
 				cron: output,
-				model: MODEL,
+				model,
 				input: trimmedInput,
 			};
 		};
 
 		let result: ApiSuccess | null = null;
 		let lastError: unknown = null;
+		let usedModel: string = PRIMARY_MODEL;
 
-		for (let attempt = 1; attempt <= 3; attempt++) {
+		for (let attempt = 1; attempt <= 2; attempt++) {
 			try {
-				result = await makeApiCall(attempt);
+				result = await makeApiCall(PRIMARY_MODEL, attempt);
+				usedModel = PRIMARY_MODEL;
 				break;
 			} catch (err) {
 				lastError = err;
-				console.error(`Model ${MODEL} attempt ${attempt} failed:`, err);
+				console.error(
+					`Primary model ${PRIMARY_MODEL} attempt ${attempt} failed:`,
+					err,
+				);
+				await new Promise((resolve) => setTimeout(resolve, 250));
+			}
+		}
 
-				if (attempt === 3) {
-					break;
-				}
-
-				await new Promise((resolve) => setTimeout(resolve, 100));
+		if (!result) {
+			try {
+				result = await makeApiCall(BACKUP_MODEL, 1);
+				usedModel = BACKUP_MODEL;
+			} catch (err) {
+				lastError = err;
+				console.error(`Backup model ${BACKUP_MODEL} failed:`, err);
 			}
 		}
 
@@ -205,7 +281,7 @@ app.post("/api/translate", async (c) => {
 						"Could not translate input to a valid cron expression after retrying",
 					details: {
 						input: trimmedInput,
-						model: MODEL,
+						model: usedModel,
 						attempts: 3,
 						lastError: lastError,
 					},
