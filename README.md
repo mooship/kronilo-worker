@@ -61,7 +61,19 @@ Health check endpoint.
 ```json
 {
   "status": "ok",
-  "timestamp": "2025-07-11T05:23:22.091Z"
+  "rateLimit": {
+    "perUser": {
+      "max": 3,
+      "windowMs": 3600000,
+      "currentUsers": 1
+    },
+    "daily": {
+      "limit": 45,
+      "used": 12,
+      "remaining": 33,
+      "date": "Sat Jul 12 2025"
+    }
+  }
 }
 ```
 
@@ -92,4 +104,4 @@ const app = new Hono<{ Bindings: CloudflareBindings }>();
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU Affero General Public License (AGPL). See the [LICENSE](LICENSE) file for details.
