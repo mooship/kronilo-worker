@@ -182,7 +182,7 @@ app.post("/api/translate", async (c) => {
 		let result: ApiSuccess | null = null;
 		let lastError: unknown = null;
 
-		for (let attempt = 1; attempt <= 2; attempt++) {
+		for (let attempt = 1; attempt <= 3; attempt++) {
 			try {
 				result = await makeApiCall(attempt);
 				break;
@@ -190,7 +190,7 @@ app.post("/api/translate", async (c) => {
 				lastError = err;
 				console.error(`Model ${MODEL} attempt ${attempt} failed:`, err);
 
-				if (attempt === 2) {
+				if (attempt === 3) {
 					break;
 				}
 
@@ -206,7 +206,7 @@ app.post("/api/translate", async (c) => {
 					details: {
 						input: trimmedInput,
 						model: MODEL,
-						attempts: 2,
+						attempts: 3,
 						lastError: lastError,
 					},
 				} satisfies ApiError,

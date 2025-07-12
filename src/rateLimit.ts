@@ -2,7 +2,7 @@ import type { KVNamespace } from "@cloudflare/workers-types";
 
 export const RATE_LIMIT_MAX = 3;
 export const RATE_LIMIT_WINDOW = 60 * 60 * 1000;
-export const DAILY_API_LIMIT = 45;
+export const DAILY_API_LIMIT = 50;
 export const rateLimitMap = new Map<string, { count: number; last: number }>();
 
 const DAILY_USAGE_KEY = "daily_usage";
