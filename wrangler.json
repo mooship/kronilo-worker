@@ -1,4 +1,5 @@
 {
+	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "kronilo",
 	"main": "./src/index.tsx",
 	"compatibility_date": "2025-07-11",
