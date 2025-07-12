@@ -1,10 +1,18 @@
 import { cloudflare } from "@cloudflare/vite-plugin";
 import { defineConfig } from "vite";
-import ssrPlugin from "vite-ssr-components/plugin";
 
 export default defineConfig({
-	plugins: [cloudflare(), ssrPlugin()],
+	plugins: [cloudflare()],
 	build: {
 		target: "es2022",
+		rollupOptions: {
+			output: {
+				manualChunks(id) {
+					if (id.includes("node_modules")) {
+						return "vendor";
+					}
+				},
+			},
+		},
 	},
 });
