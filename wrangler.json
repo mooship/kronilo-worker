@@ -11,7 +11,7 @@
 	},
 	"kv_namespaces": [
 		{
-			"binding": "KV",
+			"binding": "RATE_LIMIT_KV",
 			"id": "05bcd90e46ba4c4f80747f896f05404a"
 		}
 	]

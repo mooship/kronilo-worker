@@ -51,6 +51,15 @@ app.get("/", (c) => {
 });
 
 app.get("/health", async (c) => {
+	if (!c.env.RATE_LIMIT_KV) {
+		return c.json(
+			{
+				status: "error",
+				error: "Missing RATE_LIMIT_KV binding in environment",
+			},
+			500,
+		);
+	}
 	const dailyUsage = await getDailyUsage(c.env.RATE_LIMIT_KV);
 	return c.json({
 		status: "ok",
