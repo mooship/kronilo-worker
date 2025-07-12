@@ -10,9 +10,8 @@
 	},
 	"kv_namespaces": [
 		{
-			"binding": "RATE_LIMIT_KV",
-			"preview_id": "preview_rate_limit_kv",
-			"id": "rate_limit_kv_production"
+			"binding": "KV",
+			"id": "05bcd90e46ba4c4f80747f896f05404a"
 		}
 	]
 }
