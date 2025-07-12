@@ -211,7 +211,7 @@ app.post("/api/translate", async (c) => {
 				new Response(JSON.stringify(result), {
 					headers: {
 						"Content-Type": "application/json",
-						"Cache-Control": "max-age=604800",
+						"Cache-Control": "max-age=1814400",
 						"X-Content-Type-Options": "nosniff",
 						"X-Frame-Options": "DENY",
 					},
