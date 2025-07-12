@@ -1,4 +1,4 @@
-import type { CacheStorage, Console } from "@cloudflare/workers-types";
+import type { CacheStorage } from "@cloudflare/workers-types";
 
 declare const caches: CacheStorage;
 
@@ -70,7 +70,7 @@ app.get("/health", async (c) => {
 	});
 });
 
-const CACHE_VERSION = "v2";
+const CACHE_VERSION = "v3";
 const MODEL = "google/gemma-3n-e4b-it:free";
 
 app.post("/api/translate", async (c) => {
@@ -233,6 +233,5 @@ app.post("/api/translate", async (c) => {
 declare var Request: any;
 // biome-ignore lint/suspicious/noExplicitAny: Cloudflare Workers global
 declare var Response: any;
-declare var console: Console;
 
 export default app;

@@ -77,7 +77,9 @@ async function updateDailyUsage(
 	cachedDailyUsage = { ...dailyUsage, lastWrite: now };
 
 	if (now - dailyUsage.lastWrite > WRITE_DEBOUNCE_MS) {
-		await kv.put(DAILY_USAGE_KEY, JSON.stringify(cachedDailyUsage));
+		await kv.put(DAILY_USAGE_KEY, JSON.stringify(cachedDailyUsage), {
+			expirationTtl: 86400,
+		});
 		cachedDailyUsage.lastWrite = now;
 	}
 }
