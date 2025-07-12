@@ -80,7 +80,7 @@ app.get("/health", async (c) => {
 });
 
 const CACHE_VERSION = "v3";
-const MODEL = "google/gemma-3n-e4b-it:free";
+const MODEL = "google/gemma-3-27b-it:free";
 
 app.post("/api/translate", async (c) => {
 	try {
