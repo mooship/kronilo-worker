@@ -21,7 +21,7 @@ import type {
 	Bindings,
 	OpenRouterKeyResponse,
 } from "./types";
-import { isValidCron, SYSTEM_PROMPT, sanitizeInput } from "./utils";
+import { processInput, SYSTEM_PROMPT, validateApiResponse } from "./utils";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -52,7 +52,7 @@ app.use(async (c, next) => {
 });
 
 app.get("/", (c) => {
-	return c.render(<h1>Kronilo Worker - Cron Expression Translator</h1>);
+	return c.render(<h1>Kronilo - Cron Expression Translator</h1>);
 });
 
 app.get("/health", (c) => {
@@ -67,8 +67,7 @@ app.get("/health", (c) => {
 });
 
 const CACHE_VERSION = "v2";
-const MODELS = ["mistralai/devstral-small-2505:free"];
-const WHITESPACE_REGEX = /\s+/g;
+const MODEL = "google/gemma-3n-e4b-it:free";
 
 app.post("/api/translate", async (c) => {
 	try {
@@ -84,17 +83,13 @@ app.post("/api/translate", async (c) => {
 		}
 
 		const { input = "" } = await c.req.json<{ input?: string }>();
-		let trimmedInput = input
-			.trim()
-			.toLowerCase()
-			.replace(WHITESPACE_REGEX, " ");
+		const trimmedInput = processInput(input);
 		if (trimmedInput.length > 200) {
 			return c.json(
 				{ error: "Input too long (max 200 characters)" } satisfies ApiError,
 				413,
 			);
 		}
-		trimmedInput = sanitizeInput(trimmedInput);
 		if (!trimmedInput) {
 			return c.json({ error: "Missing input field" } satisfies ApiError, 400);
 		}
@@ -130,61 +125,81 @@ app.post("/api/translate", async (c) => {
 			},
 		});
 
-		let result: ApiSuccess | null = null;
+		const makeApiCall = async (attempt: number): Promise<ApiSuccess> => {
+			const response = await openai.chat.completions.create({
+				model: MODEL,
+				messages: [
+					{ role: "system", content: SYSTEM_PROMPT },
+					{ role: "user", content: trimmedInput },
+				],
+				max_tokens: 50,
+				temperature: attempt > 1 ? 0.1 : 0,
+			});
 
-		const modelPromises = MODELS.map(async (model) => {
-			try {
-				const response = await openai.chat.completions.create({
-					model,
-					messages: [
-						{ role: "system", content: SYSTEM_PROMPT },
-						{ role: "user", content: trimmedInput },
-					],
-					max_tokens: 50,
-					temperature: 0,
-				});
-				const output = response.choices?.[0]?.message?.content?.trim() ?? "";
-				if (isValidCron(output)) {
-					return {
-						cron: output,
-						model,
-						input: trimmedInput,
-					} satisfies ApiSuccess;
-				}
-				return null;
-			} catch (err) {
-				console.error(`Model ${model} failed:`, err);
-				return null;
+			const output = response.choices?.[0]?.message?.content?.trim() ?? "";
+
+			const validation = validateApiResponse(output);
+			if (!validation.isValid) {
+				throw new Error(validation.error || "Invalid response format");
 			}
-		});
 
-		const results = await Promise.all(modelPromises);
-		result = results.find((r) => r !== null) || null;
+			return {
+				cron: output,
+				model: MODEL,
+				input: trimmedInput,
+			};
+		};
 
-		if (result) {
-			c.executionCtx.waitUntil(
-				cache.put(
-					cacheKey,
-					new Response(JSON.stringify(result), {
-						headers: {
-							"Content-Type": "application/json",
-							"Cache-Control": "max-age=604800",
-							"X-Content-Type-Options": "nosniff",
-							"X-Frame-Options": "DENY",
-						},
-					}),
-				),
-			);
-			return c.json(result satisfies ApiSuccess);
+		let result: ApiSuccess | null = null;
+		let lastError: unknown = null;
+
+		for (let attempt = 1; attempt <= 2; attempt++) {
+			try {
+				result = await makeApiCall(attempt);
+				break;
+			} catch (err) {
+				lastError = err;
+				console.error(`Model ${MODEL} attempt ${attempt} failed:`, err);
+
+				if (attempt === 2) {
+					break;
+				}
+
+				await new Promise((resolve) => setTimeout(resolve, 100));
+			}
 		}
 
-		return c.json(
-			{
-				error: "Could not translate input to a valid cron expression",
-				details: { input: trimmedInput, triedModels: MODELS },
-			} satisfies ApiError,
-			400,
+		if (!result) {
+			return c.json(
+				{
+					error:
+						"Could not translate input to a valid cron expression after retrying",
+					details: {
+						input: trimmedInput,
+						model: MODEL,
+						attempts: 2,
+						lastError: lastError,
+					},
+				} satisfies ApiError,
+				400,
+			);
+		}
+
+		c.executionCtx.waitUntil(
+			cache.put(
+				cacheKey,
+				new Response(JSON.stringify(result), {
+					headers: {
+						"Content-Type": "application/json",
+						"Cache-Control": "max-age=604800",
+						"X-Content-Type-Options": "nosniff",
+						"X-Frame-Options": "DENY",
+					},
+				}),
+			),
 		);
+
+		return c.json(result satisfies ApiSuccess);
 	} catch (err) {
 		console.error("Error in /api/translate:", err);
 		return c.json(
