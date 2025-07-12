@@ -32,7 +32,7 @@ npm run deploy
 
 ### POST /api/translate
 
-Translate English text to a cron expression.
+Translate natural language text to a cron expression.
 
 **Request:**
 
@@ -47,7 +47,7 @@ Translate English text to a cron expression.
 ```json
 {
   "cron": "0 15 * * *",
-  "model": "google/gemma-2-9b-it:free",
+  "model": "google/gemma-3n-e4b-it:free",
   "input": "every day at 3 PM"
 }
 ```
