@@ -1,1 +1,4 @@
-{ "configPath": "..\\..\\dist\\kronilo\\wrangler.json", "auxiliaryWorkers": [] }
+{
+    "configPath": "..\\..\\dist\\kronilo\\wrangler.json",
+    "auxiliaryWorkers": []
+}
