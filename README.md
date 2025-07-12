@@ -1,6 +1,6 @@
 # Kronilo Worker - Cron Expression Translator
 
-A Cloudflare Worker that translates plain English into valid Unix cron expressions using OpenRouter AI models.
+A Cloudflare Worker that translates natural language into valid Unix cron expressions using OpenRouter AI models.
 
 ## Setup
 
