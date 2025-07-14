@@ -25,3 +25,9 @@ pnpm-debug.log*
 
 # jetbrains setting folder
 .idea/
+
+# wrangler
+.wrangler/state/v3/cache/default/blobs/
+.wrangler/state/v3/cache/miniflare-CacheObject/*.sqlite
+.wrangler/state/v3/kv/*/blobs/
+.wrangler/state/v3/kv/miniflare-KVNamespaceObject/*.sqlite
