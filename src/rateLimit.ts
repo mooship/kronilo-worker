@@ -9,12 +9,12 @@ export const RATE_LIMIT_MAX = 3;
  * Window duration in milliseconds for per-user rate limit.
  * Change this to adjust the time window for per-user rate limit.
  */
-export const RATE_LIMIT_WINDOW = 60 * 60 * 1000;
+export const RATE_LIMIT_WINDOW = 24 * 60 * 60 * 1000;
 /**
  * Maximum daily API requests allowed.
  * Change this to adjust daily global API limit.
  */
-export const DAILY_API_LIMIT = 50;
+export const DAILY_API_LIMIT = 20;
 /**
  * Tracks per-user request counts and timestamps.
  * Used for in-memory rate limiting (not persisted).

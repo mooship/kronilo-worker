@@ -411,7 +411,7 @@ app.post("/api/translate", async (c) => {
 			defaultHeaders: {
 				"HTTP-Referer":
 					c.req.header("origin") || "https://kronilo.timothybrits.com",
-				"X-Title": "Kronilo Worker - Cron Translator",
+				"X-Title": "Kronilo",
 			},
 		});
 
