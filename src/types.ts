@@ -24,6 +24,7 @@ export interface ApiSuccess {
 	cron: string;
 	model: string;
 	input: string;
+	language: string;
 }
 
 /**

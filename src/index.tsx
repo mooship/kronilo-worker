@@ -59,6 +59,11 @@ const openApiDoc = {
 								type: "object",
 								properties: {
 									input: { type: "string" },
+									language: {
+										type: "string",
+										description:
+											"ISO language code (e.g. 'en', 'fr', 'de', 'es'). Optional, defaults to 'en'.",
+									},
 								},
 								required: ["input"],
 							},
@@ -76,6 +81,10 @@ const openApiDoc = {
 										cron: { type: "string" },
 										model: { type: "string" },
 										input: { type: "string" },
+										language: {
+											type: "string",
+											description: "ISO language code used for translation.",
+										},
 									},
 								},
 							},
@@ -231,8 +240,11 @@ const BACKUP_MODEL = "mistralai/mistral-7b-instruct:free";
 /**
  * Main API endpoint for translating plain English input to cron expressions.
  * Endpoint: POST /api/translate
- * Request body: { input: string }
+ * Request body: { input: string, language?: string }
+ *   - input: The plain English description to translate (required)
+ *   - language: ISO language code (e.g. 'en', 'fr', 'de', 'es'). Optional, defaults to 'en'.
  * Returns: JSON response with cron expression or error details.
+ * Response body: { cron: string, model: string, input: string, language: string }
  * Features:
  *   - Rate limiting (per-user and daily limits)
  *   - Response caching for identical inputs
@@ -293,12 +305,18 @@ app.post("/api/translate", async (c) => {
 			);
 		}
 
-		const { input = "" } = await c.req.json<{ input?: string }>();
+		const { input = "", language = "en" } = await c.req.json<{
+			input?: string;
+			language?: string;
+		}>();
 		let trimmedInput = processInput(input);
 		trimmedInput = trimmedInput
 			.replace(/[<>"'`]/g, "")
 			.replace(/\s+/g, " ")
 			.trim();
+		const trimmedLanguage = (
+			typeof language === "string" ? language.trim().toLowerCase() : "en"
+		).slice(0, 8);
 		if (trimmedInput.length > 200) {
 			metrics.error = "Input too long";
 			console.error("[metrics]", metrics);
@@ -411,12 +429,14 @@ app.post("/api/translate", async (c) => {
 			attempt: number,
 		): Promise<ApiSuccess> => {
 			try {
+				// Pass language code as part of the user message for LLM context
+				const userPrompt = `Language: ${trimmedLanguage}\n${trimmedInput}`;
 				const response = await openai.chat.completions.create(
 					{
 						model,
 						messages: [
 							{ role: "system", content: SYSTEM_PROMPT },
-							{ role: "user", content: trimmedInput },
+							{ role: "user", content: userPrompt },
 						],
 						max_tokens: 50,
 						temperature: attempt > 1 ? 0.1 : 0,
@@ -434,6 +454,7 @@ app.post("/api/translate", async (c) => {
 					cron: output,
 					model,
 					input: trimmedInput,
+					language: trimmedLanguage,
 				};
 			} catch (err) {
 				if (
