@@ -20,6 +20,28 @@ import type { ApiSuccess, Bindings } from "./types";
 import { processInput, SYSTEM_PROMPT, validateApiResponse } from "./utils";
 
 /**
+ * Common security headers for API responses and endpoints.
+ * Helps prevent XSS, clickjacking, and other web vulnerabilities.
+ * Used for all API and HTML responses to enforce strict security policies.
+ *
+ * @property {string} Content-Type - Specifies the media type of the resource.
+ * @property {string} X-Content-Type-Options - Prevents MIME type sniffing.
+ * @property {string} X-Frame-Options - Prevents the page from being displayed in a frame.
+ * @property {string} Strict-Transport-Security - Enforces secure (HTTPS) connections to the server.
+ * @property {string} Referrer-Policy - Controls how much referrer information is included with requests.
+ * @property {string} Content-Security-Policy - Restricts sources for content, frames, and base URI.
+ */
+const securityHeaders = {
+	"Content-Type": "application/json",
+	"X-Content-Type-Options": "nosniff",
+	"X-Frame-Options": "DENY",
+	"Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
+	"Referrer-Policy": "no-referrer",
+	"Content-Security-Policy":
+		"default-src 'none'; frame-ancestors 'none'; base-uri 'none';",
+};
+
+/**
  * OpenAPI document for Swagger UI integration.
  * Describes all public endpoints for Kronilo Worker.
  * Used by /doc and /ui endpoints for API documentation and interactive testing.
@@ -297,11 +319,7 @@ app.post("/api/translate", async (c) => {
 					error: "Missing OPENROUTER_API_KEY environment variable",
 				}),
 				500,
-				{
-					"Content-Type": "application/json",
-					"X-Content-Type-Options": "nosniff",
-					"X-Frame-Options": "DENY",
-				},
+				securityHeaders,
 			);
 		}
 
@@ -323,21 +341,17 @@ app.post("/api/translate", async (c) => {
 			return c.text(
 				JSON.stringify({ error: "Input too long (max 200 characters)" }),
 				413,
-				{
-					"Content-Type": "application/json",
-					"X-Content-Type-Options": "nosniff",
-					"X-Frame-Options": "DENY",
-				},
+				securityHeaders,
 			);
 		}
 		if (!trimmedInput) {
 			metrics.error = "Missing input field";
 			console.error("[metrics]", metrics);
-			return c.text(JSON.stringify({ error: "Missing input field" }), 400, {
-				"Content-Type": "application/json",
-				"X-Content-Type-Options": "nosniff",
-				"X-Frame-Options": "DENY",
-			});
+			return c.text(
+				JSON.stringify({ error: "Missing input field" }),
+				400,
+				securityHeaders,
+			);
 		}
 
 		const ip =
@@ -370,11 +384,7 @@ app.post("/api/translate", async (c) => {
 					},
 				}),
 				429,
-				{
-					"Content-Type": "application/json",
-					"X-Content-Type-Options": "nosniff",
-					"X-Frame-Options": "DENY",
-				},
+				securityHeaders,
 			);
 		}
 
@@ -395,11 +405,7 @@ app.post("/api/translate", async (c) => {
 				metrics.model = cachedData.model || null;
 				metrics.attempts = 0;
 				console.info("[metrics]", metrics);
-				return c.text(JSON.stringify(cachedData), 200, {
-					"Content-Type": "application/json",
-					"X-Content-Type-Options": "nosniff",
-					"X-Frame-Options": "DENY",
-				});
+				return c.text(JSON.stringify(cachedData), 200, securityHeaders);
 			} catch (cacheParseErr) {
 				console.error("[CacheParseError]", cacheParseErr);
 			}
@@ -518,11 +524,7 @@ app.post("/api/translate", async (c) => {
 					},
 				}),
 				400,
-				{
-					"Content-Type": "application/json",
-					"X-Content-Type-Options": "nosniff",
-					"X-Frame-Options": "DENY",
-				},
+				securityHeaders,
 			);
 		}
 
@@ -535,10 +537,8 @@ app.post("/api/translate", async (c) => {
 				cacheKey,
 				new Response(JSON.stringify(result), {
 					headers: {
-						"Content-Type": "application/json",
+						...securityHeaders,
 						"Cache-Control": "max-age=1814400",
-						"X-Content-Type-Options": "nosniff",
-						"X-Frame-Options": "DENY",
 					},
 				}),
 			);
@@ -550,11 +550,7 @@ app.post("/api/translate", async (c) => {
 		 * Logs metrics and returns successful response.
 		 */
 		console.info("[metrics]", metrics);
-		return c.text(JSON.stringify(result), 200, {
-			"Content-Type": "application/json",
-			"X-Content-Type-Options": "nosniff",
-			"X-Frame-Options": "DENY",
-		});
+		return c.text(JSON.stringify(result), 200, securityHeaders);
 	} catch (err) {
 		/**
 		 * Error handling: Unexpected internal server error.
@@ -565,11 +561,7 @@ app.post("/api/translate", async (c) => {
 		return c.text(
 			JSON.stringify({ error: "Internal server error", details: err }),
 			500,
-			{
-				"Content-Type": "application/json",
-				"X-Content-Type-Options": "nosniff",
-				"X-Frame-Options": "DENY",
-			},
+			securityHeaders,
 		);
 	}
 });
