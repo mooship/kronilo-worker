@@ -40,11 +40,6 @@ const securityHeaders = {
 		"default-src 'none'; frame-ancestors 'none'; base-uri 'none';",
 };
 
-/**
- * OpenAPI document for Swagger UI integration.
- * Describes all public endpoints for Kronilo Worker.
- * Used by /doc and /ui endpoints for API documentation and interactive testing.
- */
 const openApiDoc = {
 	openapi: "3.0.0",
 	info: {
@@ -120,43 +115,12 @@ const openApiDoc = {
 	},
 };
 
-/**
- * Main Hono application instance for the Kronilo cron translation service.
- * Configured with Cloudflare Workers bindings for KV storage and environment variables.
- */
 const app = new Hono<{ Bindings: Bindings }>();
 
-/**
- * Serves the OpenAPI document for Swagger UI and other tools.
- * Endpoint: GET /doc
- * Returns: OpenAPI JSON spec for all public endpoints.
- *
- * Useful for API clients, code generation, and documentation tools.
- */
 app.get("/doc", (c) => c.json(openApiDoc));
 
-/**
- * Serves Swagger UI for interactive API documentation and testing.
- * Endpoint: GET /ui
- * Returns: Swagger UI HTML page.
- *
- * Useful for developers and testers to try endpoints live.
- */
 app.get("/ui", swaggerUI({ url: "/doc" }));
 
-/**
- * Metrics and observability object for API requests.
- * Tracks timing, cache usage, model selection, error states, rate limiting, and timeouts.
- * Used for logging and debugging API behavior and performance.
- */
-// See usage in /api/translate endpoint below.
-
-/**
- * Configure CORS middleware to allow requests from approved origins.
- * Permits access from production domains and local development.
- *
- * If you add new frontend domains, update the origin list below.
- */
 app.use(
 	"/*",
 	cors({
@@ -173,12 +137,6 @@ app.use(
 app.use(renderer);
 app.use(prettyJSON());
 
-/**
- * Request logging middleware that captures method, URL, and client IP.
- * Logs all incoming requests with timestamp for monitoring and debugging.
- *
- * For privacy, IPs are not stored, only logged to console.
- */
 app.use(async (c, next) => {
 	const { method, url } = c.req;
 	const ip =
@@ -189,24 +147,10 @@ app.use(async (c, next) => {
 	await next();
 });
 
-/**
- * Root endpoint that returns a simple HTML page identifying the service.
- * Endpoint: GET /
- * Returns: HTML page with service name.
- *
- * Used for browser access and uptime checks.
- */
 app.get("/", (c) => {
 	return c.render(<h1>Kronilo - Cron Expression Translator</h1>);
 });
 
-/**
- * Health check endpoint that provides service status and rate limit information.
- * Endpoint: GET /health
- * Returns: JSON with current rate limiting stats including per-user and daily usage data.
- *
- * Useful for monitoring and alerting integrations.
- */
 app.get("/health", async (c) => {
 	if (!c.env.RATE_LIMIT_KV) {
 		return c.json(
@@ -235,57 +179,12 @@ app.get("/health", async (c) => {
 	});
 });
 
-/**
- * Cache version identifier for API responses.
- * Increment this when cache invalidation is needed due to logic changes.
- *
- * Used for cache busting in Cloudflare cache.
- */
 const CACHE_VERSION = "v4";
-
-/**
- * Primary AI model for cron expression translation via OpenRouter.
- *
- * Change this to update the default model used for translation.
- */
 const PRIMARY_MODEL = "google/gemini-2.0-flash-exp:free";
-
-/**
- * Backup AI model used when the primary model fails or is unavailable.
- *
- * Used for fallback and reliability.
- */
 const BACKUP_MODEL = "mistralai/mistral-7b-instruct:free";
 
-/**
- * Main API endpoint for translating plain English input to cron expressions.
- * Endpoint: POST /api/translate
- * Request body: { input: string, language?: string }
- *   - input: The plain English description to translate (required)
- *   - language: ISO language code (e.g. 'en', 'fr', 'de', 'es'). Optional, defaults to 'en'.
- * Returns: JSON response with cron expression or error details.
- * Response body: { cron: string, model: string, input: string, language: string }
- * Features:
- *   - Rate limiting (per-user and daily limits)
- *   - Response caching for identical inputs
- *   - Retry logic with primary and backup AI models
- *   - Input validation and sanitization
- *   - Comprehensive error handling
- *
- * If you change the request/response format, update openApiDoc above.
- */
 app.post("/api/translate", async (c) => {
 	try {
-		/**
-		 * Metrics object for this request.
-		 * @property start - Timestamp when request started
-		 * @property cacheHit - True if response was served from cache
-		 * @property model - Model used for translation (primary or backup)
-		 * @property attempts - Number of model attempts
-		 * @property error - Error message if any
-		 * @property rateLimit - True if request was rate limited
-		 * @property timeout - True if model call timed out
-		 */
 		const metrics: {
 			start: number;
 			cacheHit: boolean;
@@ -305,10 +204,7 @@ app.post("/api/translate", async (c) => {
 		};
 
 		const OPENROUTER_API_KEY = c.env.OPENROUTER_API_KEY;
-		/**
-		 * Error handling: Missing OpenRouter API key.
-		 * Logs error and returns 500 response with error message.
-		 */
+
 		if (!OPENROUTER_API_KEY) {
 			metrics.error = "Missing OPENROUTER_API_KEY";
 			console.error("[metrics]", metrics);
@@ -419,21 +315,12 @@ app.post("/api/translate", async (c) => {
 			},
 		});
 
-		/**
-		 * Makes an API call to the specified AI model for cron translation.
-		 * Handles timeout errors and validates response format.
-		 * @param model - The AI model identifier to use
-		 * @param attempt - The attempt number (affects temperature setting)
-		 * @returns Promise resolving to a successful API response
-		 * @throws Error if the model returns an invalid response or times out
-		 */
 		let timeoutError = false;
 		const makeApiCall = async (
 			model: string,
 			attempt: number,
 		): Promise<ApiSuccess> => {
 			try {
-				// Pass language code as part of the user message for LLM context
 				const userPrompt = `Language: ${trimmedLanguage}\n${trimmedInput}`;
 				const response = await openai.chat.completions.create(
 					{
@@ -479,13 +366,29 @@ app.post("/api/translate", async (c) => {
 		let usedModel: string | null = null;
 		let attempts = 0;
 
-		attempts++;
-		try {
-			result = await makeApiCall(PRIMARY_MODEL, 1);
-			usedModel = PRIMARY_MODEL;
-		} catch (err) {
-			lastError = err;
-			console.error(`Primary model ${PRIMARY_MODEL} attempt 1 failed:`, err);
+		const delay = (ms: number) =>
+			new Promise((resolve) => setTimeout(resolve, ms));
+
+		for (let i = 1; i <= 2; i++) {
+			attempts++;
+			try {
+				result = await makeApiCall(PRIMARY_MODEL, i);
+				usedModel = PRIMARY_MODEL;
+				break;
+			} catch (err) {
+				lastError = err;
+				if (!(timeoutError && i < 2)) {
+					console.error(
+						`Primary model ${PRIMARY_MODEL} attempt ${i} failed:`,
+						err,
+					);
+					break;
+				}
+				console.warn(
+					`Primary model ${PRIMARY_MODEL} timed out, retrying (attempt ${i + 1})...`,
+				);
+				await delay(250);
+			}
 		}
 
 		if (!result) {
@@ -503,10 +406,6 @@ app.post("/api/translate", async (c) => {
 		metrics.attempts = attempts;
 		metrics.timeout = timeoutError;
 
-		/**
-		 * Error handling: Model translation failed after all attempts.
-		 * Logs error and returns 400 response with details.
-		 */
 		if (!result) {
 			metrics.error = "Model translation failed";
 			console.error("[metrics]", metrics);
@@ -526,10 +425,6 @@ app.post("/api/translate", async (c) => {
 			);
 		}
 
-		/**
-		 * Attempts to cache the successful response.
-		 * Logs cache put errors but does not block response.
-		 */
 		try {
 			await cache.put(
 				cacheKey,
@@ -544,16 +439,9 @@ app.post("/api/translate", async (c) => {
 			console.error("[CachePutError]", cachePutErr);
 		}
 
-		/**
-		 * Logs metrics and returns successful response.
-		 */
 		console.info("[metrics]", metrics);
 		return c.text(JSON.stringify(result), 200, securityHeaders);
 	} catch (err) {
-		/**
-		 * Error handling: Unexpected internal server error.
-		 * Logs error and returns 500 response with details.
-		 */
 		console.error("Error in /api/translate:", err);
 		console.error("[metrics]", { error: err });
 		return c.text(
