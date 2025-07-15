@@ -1,16 +1,18 @@
 import type { KVNamespace } from "@cloudflare/workers-types";
 
 /**
- * Environment bindings for Cloudflare Worker.
+ * Type definitions for the OpenRouter API and related structures.
  */
+
 export type Bindings = {
 	OPENROUTER_API_KEY: string;
 	RATE_LIMIT_KV: KVNamespace;
 };
 
 /**
- * Error response for API endpoints.
+ * Structure for API error responses.
  */
+
 export interface ApiError {
 	error: string;
 	rateLimitType?: "daily" | "perUser";
@@ -18,8 +20,9 @@ export interface ApiError {
 }
 
 /**
- * Success response for cron translation API.
+ * Structure for successful API responses.
  */
+
 export interface ApiSuccess {
 	cron: string;
 	model: string;
@@ -28,8 +31,9 @@ export interface ApiSuccess {
 }
 
 /**
- * Cached response structure for cron translation.
+ * Structure for cached API responses.
  */
+
 export interface ApiCache {
 	cron: string;
 	model: string;
@@ -37,8 +41,9 @@ export interface ApiCache {
 }
 
 /**
- * Response structure for OpenRouter API key info.
+ * Structure for OpenRouter API key response.
  */
+
 export interface OpenRouterKeyResponse {
 	data?: {
 		label?: string;

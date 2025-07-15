@@ -1,48 +1,43 @@
 import type { KVNamespace } from "@cloudflare/workers-types";
 
 /**
- * Maximum requests per user per window.
- * Change this to adjust per-user rate limit.
+ * Rate limiting constants and functions for managing API usage.
  */
+
 export const RATE_LIMIT_MAX = 2;
-/**
- * Window duration in milliseconds for per-user rate limit.
- * Change this to adjust the time window for per-user rate limit.
- */
 export const RATE_LIMIT_WINDOW = 24 * 60 * 60 * 1000;
-/**
- * Maximum daily API requests allowed.
- * Change this to adjust daily global API limit.
- */
 export const DAILY_API_LIMIT = 20;
-/**
- * Burst window duration in milliseconds (e.g., 1 minute)
- * Change this to adjust burst protection window.
- */
 export const BURST_WINDOW_MS = 60 * 1000;
-/**
- * Maximum requests allowed in burst window.
- * Change this to adjust burst protection limit.
- */
 export const BURST_LIMIT = 2;
 
+/**
+ * Key used for storing daily usage in KV.
+ */
+
 const DAILY_USAGE_KEY = "daily_usage";
+
+/**
+ * Cached daily usage object to reduce KV reads.
+ */
 
 let cachedDailyUsage: {
 	count: number;
 	date: string;
 	lastWrite: number;
 } | null = null;
+/**
+ * Debounce time for writing daily usage to KV in milliseconds.
+ */
+
 const WRITE_DEBOUNCE_MS = 2000;
 
 /**
- * Checks if the given IP is within sliding window and burst limits, updates usage, and persists timestamps in KV.
- * Called by /api/translate endpoint before processing request.
- *
- * @param ip - User IP address
- * @param kv - Cloudflare KV namespace
- * @returns True if allowed, false if rate limited
+ * Checks if the given IP is within rate limits and updates usage counters.
+ * @param ip - The user's IP address.
+ * @param kv - The KVNamespace for storing rate limit data.
+ * @returns True if allowed, false if rate limited.
  */
+
 export async function checkRateLimit(
 	ip: string,
 	kv: KVNamespace,
@@ -87,13 +82,12 @@ export async function checkRateLimit(
 }
 
 /**
- * Retrieves daily usage from KV or cache for the current day.
- * Used internally for rate limit checks and stats.
- *
- * @param kv - Cloudflare KV namespace
- * @param today - Current date string
- * @returns Daily usage object
+ * Internal helper to get daily usage from KV or cache.
+ * @param kv - The KVNamespace.
+ * @param today - Today's date string.
+ * @returns Daily usage object.
  */
+
 async function getDailyUsageInternal(kv: KVNamespace, today: string) {
 	if (cachedDailyUsage && cachedDailyUsage.date === today) {
 		return cachedDailyUsage;
@@ -114,13 +108,12 @@ async function getDailyUsageInternal(kv: KVNamespace, today: string) {
 }
 
 /**
- * Updates daily usage in KV if debounce interval has passed.
- * Used internally to persist usage stats.
- *
- * @param kv - Cloudflare KV namespace
- * @param dailyUsage - Usage object
- * @param now - Current timestamp
+ * Updates daily usage in KV if debounce time has passed.
+ * @param kv - The KVNamespace.
+ * @param dailyUsage - The daily usage object.
+ * @param now - Current timestamp.
  */
+
 async function updateDailyUsage(
 	kv: KVNamespace,
 	dailyUsage: { count: number; date: string; lastWrite: number },
@@ -137,12 +130,11 @@ async function updateDailyUsage(
 }
 
 /**
- * Returns daily usage stats for the current day.
- * Used by /health endpoint for monitoring.
- *
- * @param kv - Cloudflare KV namespace
- * @returns Usage stats including count, date, and remaining
+ * Gets the current daily usage and remaining API calls for today.
+ * @param kv - The KVNamespace.
+ * @returns Object with count, date, and remaining calls.
  */
+
 export async function getDailyUsage(kv: KVNamespace) {
 	const today = new Date().toDateString();
 	const dailyUsage = await getDailyUsageInternal(kv, today);

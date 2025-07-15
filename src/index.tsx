@@ -1,5 +1,8 @@
 import type { CacheStorage } from "@cloudflare/workers-types";
 
+/**
+ * Cloudflare Worker global cache storage.
+ */
 declare const caches: CacheStorage;
 
 import { swaggerUI } from "@hono/swagger-ui";
@@ -19,16 +22,7 @@ import type { ApiSuccess, Bindings } from "./types";
 import { processInput, SYSTEM_PROMPT, validateApiResponse } from "./utils";
 
 /**
- * Common security headers for API responses and endpoints.
- * Helps prevent XSS, clickjacking, and other web vulnerabilities.
- * Used for all API and HTML responses to enforce strict security policies.
- *
- * @property {string} Content-Type - Specifies the media type of the resource.
- * @property {string} X-Content-Type-Options - Prevents MIME type sniffing.
- * @property {string} X-Frame-Options - Prevents the page from being displayed in a frame.
- * @property {string} Strict-Transport-Security - Enforces secure (HTTPS) connections to the server.
- * @property {string} Referrer-Policy - Controls how much referrer information is included with requests.
- * @property {string} Content-Security-Policy - Restricts sources for content, frames, and base URI.
+ * Security headers applied to all API responses for improved security.
  */
 const securityHeaders = {
 	"Content-Type": "application/json",
@@ -40,6 +34,9 @@ const securityHeaders = {
 		"default-src 'none'; frame-ancestors 'none'; base-uri 'none';",
 };
 
+/**
+ * OpenAPI documentation for Kronilo API endpoints.
+ */
 const openApiDoc = {
 	openapi: "3.0.0",
 	info: {
@@ -78,7 +75,7 @@ const openApiDoc = {
 									language: {
 										type: "string",
 										description:
-											"ISO language code (e.g. 'en', 'fr', 'de', 'es'). Optional, defaults to 'en'.",
+											"ISO language code (e.g. 'en', 'fr', 'de', 'es', 'it', 'nl', 'pt-BR', 'pt-PT'). Optional, defaults to 'en'.",
 									},
 								},
 								required: ["input"],
@@ -115,12 +112,26 @@ const openApiDoc = {
 	},
 };
 
+/**
+ * Main Hono application instance for Kronilo Worker.
+ */
 const app = new Hono<{ Bindings: Bindings }>();
 
+/**
+ * Serves the OpenAPI documentation as JSON.
+ * @route GET /doc
+ */
 app.get("/doc", (c) => c.json(openApiDoc));
 
+/**
+ * Serves the Swagger UI for API documentation.
+ * @route GET /ui
+ */
 app.get("/ui", swaggerUI({ url: "/doc" }));
 
+/**
+ * Enables CORS for allowed origins and methods.
+ */
 app.use(
 	"/*",
 	cors({
@@ -134,9 +145,15 @@ app.use(
 	}),
 );
 
+/**
+ * Middleware for server-side rendering and pretty JSON responses.
+ */
 app.use(renderer);
 app.use(prettyJSON());
 
+/**
+ * Logs incoming requests with method, URL, and IP address.
+ */
 app.use(async (c, next) => {
 	const { method, url } = c.req;
 	const ip =
@@ -147,10 +164,18 @@ app.use(async (c, next) => {
 	await next();
 });
 
+/**
+ * Root endpoint serving the main HTML page.
+ * @route GET /
+ */
 app.get("/", (c) => {
 	return c.render(<h1>Kronilo - Cron Expression Translator</h1>);
 });
 
+/**
+ * Health check endpoint providing rate limit status.
+ * @route GET /health
+ */
 app.get("/health", async (c) => {
 	if (!c.env.RATE_LIMIT_KV) {
 		return c.json(
@@ -179,12 +204,32 @@ app.get("/health", async (c) => {
 	});
 });
 
+/**
+ * Cache version for translation results.
+ */
 const CACHE_VERSION = "v4";
+/**
+ * Primary model used for translation.
+ */
 const PRIMARY_MODEL = "google/gemini-2.0-flash-exp:free";
+/**
+ * Backup model used if primary model fails.
+ */
 const BACKUP_MODEL = "mistralai/mistral-7b-instruct:free";
 
+/**
+ * Translates plain English to a cron expression using AI models.
+ * Handles caching, rate limiting, and model fallback.
+ * @route POST /api/translate
+ * @param {string} input - The plain English input to translate.
+ * @param {string} [language] - Optional ISO language code.
+ * @returns {ApiSuccess|Error} Translation result or error response.
+ */
 app.post("/api/translate", async (c) => {
 	try {
+		/**
+		 * Metrics for logging and debugging translation requests.
+		 */
 		const metrics: {
 			start: number;
 			cacheHit: boolean;
@@ -316,6 +361,12 @@ app.post("/api/translate", async (c) => {
 		});
 
 		let timeoutError = false;
+		/**
+		 * Makes an API call to the specified model to translate input.
+		 * @param {string} model - Model name to use for translation.
+		 * @param {number} attempt - Attempt number for retry logic.
+		 * @returns {Promise<ApiSuccess>} Translation result.
+		 */
 		const makeApiCall = async (
 			model: string,
 			attempt: number,
@@ -366,6 +417,11 @@ app.post("/api/translate", async (c) => {
 		let usedModel: string | null = null;
 		let attempts = 0;
 
+		/**
+		 * Delays execution for a given number of milliseconds.
+		 * @param {number} ms - Milliseconds to delay.
+		 * @returns {Promise<void>}
+		 */
 		const delay = (ms: number) =>
 			new Promise((resolve) => setTimeout(resolve, ms));
 
