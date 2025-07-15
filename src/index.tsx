@@ -13,7 +13,6 @@ import {
 	getDailyUsage,
 	RATE_LIMIT_MAX,
 	RATE_LIMIT_WINDOW,
-	rateLimitMap,
 } from "./rateLimit";
 import { renderer } from "./renderer";
 import type { ApiSuccess, Bindings } from "./types";
@@ -225,7 +224,6 @@ app.get("/health", async (c) => {
 			perUser: {
 				max: RATE_LIMIT_MAX,
 				windowMs: RATE_LIMIT_WINDOW,
-				currentUsers: rateLimitMap.size,
 			},
 			daily: {
 				limit: DAILY_API_LIMIT,
