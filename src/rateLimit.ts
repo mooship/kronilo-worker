@@ -4,7 +4,7 @@ import type { KVNamespace } from "@cloudflare/workers-types";
  * Maximum requests per user per window.
  * Change this to adjust per-user rate limit.
  */
-export const RATE_LIMIT_MAX = 3;
+export const RATE_LIMIT_MAX = 2;
 /**
  * Window duration in milliseconds for per-user rate limit.
  * Change this to adjust the time window for per-user rate limit.
@@ -16,12 +16,16 @@ export const RATE_LIMIT_WINDOW = 24 * 60 * 60 * 1000;
  */
 export const DAILY_API_LIMIT = 20;
 /**
- * Tracks per-user request counts and timestamps.
- * Used for in-memory rate limiting (not persisted).
+ * Burst window duration in milliseconds (e.g., 1 minute)
+ * Change this to adjust burst protection window.
  */
-export const rateLimitMap = new Map<string, { count: number; last: number }>();
+export const BURST_WINDOW_MS = 60 * 1000;
+/**
+ * Maximum requests allowed in burst window.
+ * Change this to adjust burst protection limit.
+ */
+export const BURST_LIMIT = 2;
 
-// KV key for storing daily usage stats
 const DAILY_USAGE_KEY = "daily_usage";
 
 let cachedDailyUsage: {
@@ -29,11 +33,10 @@ let cachedDailyUsage: {
 	date: string;
 	lastWrite: number;
 } | null = null;
-// Debounce interval for KV writes (ms)
 const WRITE_DEBOUNCE_MS = 2000;
 
 /**
- * Checks if the given IP is within rate limits and updates usage.
+ * Checks if the given IP is within sliding window and burst limits, updates usage, and persists timestamps in KV.
  * Called by /api/translate endpoint before processing request.
  *
  * @param ip - User IP address
@@ -48,30 +51,37 @@ export async function checkRateLimit(
 	const today = new Date().toDateString();
 
 	const dailyUsage = await getDailyUsageInternal(kv, today);
-
 	if (dailyUsage.count >= DAILY_API_LIMIT) {
 		return false;
 	}
 
-	const entry = rateLimitMap.get(ip);
-
-	if (!entry || now - entry.last > RATE_LIMIT_WINDOW) {
-		rateLimitMap.set(ip, { count: 1, last: now });
-		dailyUsage.count++;
-
-		await updateDailyUsage(kv, dailyUsage, now);
-		cleanupOldEntries(now);
-		return true;
+	const userKey = `rate_${ip}`;
+	let timestamps: number[] = [];
+	const stored = await kv.get(userKey);
+	if (stored) {
+		try {
+			timestamps = JSON.parse(stored);
+		} catch {}
 	}
 
-	if (entry.count >= RATE_LIMIT_MAX) {
+	timestamps = timestamps.filter((ts) => now - ts < RATE_LIMIT_WINDOW);
+	if (timestamps.length >= RATE_LIMIT_MAX) {
 		return false;
 	}
 
-	entry.count++;
-	entry.last = now;
-	dailyUsage.count++;
+	const burstCount = timestamps.filter(
+		(ts) => now - ts < BURST_WINDOW_MS,
+	).length;
+	if (burstCount >= BURST_LIMIT) {
+		return false;
+	}
 
+	timestamps.push(now);
+	await kv.put(userKey, JSON.stringify(timestamps), {
+		expirationTtl: Math.ceil(RATE_LIMIT_WINDOW / 1000),
+	});
+
+	dailyUsage.count++;
 	await updateDailyUsage(kv, dailyUsage, now);
 	return true;
 }
@@ -142,20 +152,4 @@ export async function getDailyUsage(kv: KVNamespace) {
 		date: dailyUsage.date,
 		remaining: DAILY_API_LIMIT - dailyUsage.count,
 	};
-}
-
-/**
- * Cleans up old entries in the rateLimitMap based on window expiration.
- * Used internally to prevent memory leaks in long-running workers.
- *
- * @param now - Current timestamp
- */
-function cleanupOldEntries(now: number): void {
-	if (Math.random() < 0.1) {
-		for (const [ip, entry] of rateLimitMap.entries()) {
-			if (now - entry.last > RATE_LIMIT_WINDOW) {
-				rateLimitMap.delete(ip);
-			}
-		}
-	}
 }
