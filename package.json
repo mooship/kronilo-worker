@@ -12,7 +12,7 @@
 	},
 	"dependencies": {
 		"@hono/swagger-ui": "^0.2.2",
-		"hono": "^4.8.4",
+		"hono": "^4.8.5",
 		"ky": "^1.8.1",
 		"openai": "^5.10.1"
 	},
