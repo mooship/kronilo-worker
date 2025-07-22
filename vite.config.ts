@@ -15,7 +15,6 @@ export default defineConfig({
           if (!id.includes("node_modules")) {
 						return;
 					}
-
           if (id.includes("node_modules/hono")) {
             return "hono";
           }
