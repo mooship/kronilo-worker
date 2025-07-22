@@ -1,105 +1,106 @@
 import type { KVNamespace } from "@cloudflare/workers-types";
+import { logError } from "./utils";
 
-export const RATE_LIMIT_MAX = 2;
-export const RATE_LIMIT_WINDOW = 24 * 60 * 60 * 1000;
-export const DAILY_API_LIMIT = 20;
-export const BURST_WINDOW_MS = 60 * 1000;
-export const BURST_LIMIT = 2;
+export const RATE_LIMIT_MAX: number = 5;
+export const RATE_LIMIT_WINDOW: number = 24 * 60 * 60 * 1000;
+export const DAILY_API_LIMIT: number = 50;
+export const BURST_WINDOW_MS: number = 60 * 1000;
+export const BURST_LIMIT: number = 5;
 
-const DAILY_USAGE_KEY = "daily_usage";
+const DAILY_USAGE_KEY: string = "daily_usage";
+const DAILY_USAGE_TTL: number = 86400;
+const USER_WINDOW_TTL: number = Math.ceil(RATE_LIMIT_WINDOW / 1000);
+const USER_KEY_PREFIX: string = "rate_limit:ip:";
 
-let cachedDailyUsage: {
-	count: number;
-	date: string;
-	lastWrite: number;
-} | null = null;
-
-const WRITE_DEBOUNCE_MS = 2000;
+type Timestamps = number[];
+type IpAddress = string;
 
 export async function checkRateLimit(
-	ip: string,
+	ip: IpAddress,
 	kv: KVNamespace,
 ): Promise<boolean> {
-	const now = Date.now();
-	const today = new Date().toDateString();
+	if (!ip || ip === "unknown") {
+		logError("RateLimit: missing or unknown IP", ip);
+		return false;
+	}
+	const now: number = Date.now();
+	const today: string = new Date().toISOString().slice(0, 10);
+	const dailyKey: string = `${DAILY_USAGE_KEY}_${today}`;
 
-	const dailyUsage = await getDailyUsageInternal(kv, today);
-	if (dailyUsage.count >= DAILY_API_LIMIT) {
+	let count: number = 0;
+	let incremented: boolean = false;
+	try {
+		count =
+			(await kv.get(dailyKey).then((raw) => parseInt(raw || "0", 10))) || 0;
+		if (count >= DAILY_API_LIMIT) {
+			return false;
+		}
+		await kv.put(dailyKey, String(count + 1), {
+			expirationTtl: DAILY_USAGE_TTL,
+		});
+		incremented = true;
+	} catch (err) {
+		logError("KV daily usage increment error", err);
+	}
+	if (!incremented) {
 		return false;
 	}
 
-	const userKey = `rate_${ip}`;
-	let timestamps: number[] = [];
-	const stored = await kv.get(userKey);
-	if (stored) {
-		try {
-			timestamps = JSON.parse(stored);
-		} catch {}
+	const key: string = `${USER_KEY_PREFIX}${ip}`;
+	let timestamps: Timestamps = [];
+	try {
+		const arr = await kv.get<Timestamps>(key, "json");
+		if (Array.isArray(arr)) {
+			timestamps = arr;
+		}
+	} catch (err) {
+		logError("KV user timestamps get error", err);
 	}
 
-	timestamps = timestamps.filter((ts) => now - ts < RATE_LIMIT_WINDOW);
+	const windowStart: number = now - RATE_LIMIT_WINDOW;
+	timestamps = timestamps.filter((t) => t >= windowStart);
 	if (timestamps.length >= RATE_LIMIT_MAX) {
 		return false;
 	}
 
-	const burstCount = timestamps.filter(
-		(ts) => now - ts < BURST_WINDOW_MS,
-	).length;
-	if (burstCount >= BURST_LIMIT) {
+	const burstStart: number = now - BURST_WINDOW_MS;
+	if (timestamps.filter((t) => t >= burstStart).length >= BURST_LIMIT) {
 		return false;
 	}
 
 	timestamps.push(now);
-	await kv.put(userKey, JSON.stringify(timestamps), {
-		expirationTtl: Math.ceil(RATE_LIMIT_WINDOW / 1000),
-	});
+	try {
+		await kv.put(key, JSON.stringify(timestamps), {
+			expirationTtl: USER_WINDOW_TTL,
+		});
+	} catch (err) {
+		logError("KV user timestamps put error", err);
+	}
 
-	dailyUsage.count++;
-	await updateDailyUsage(kv, dailyUsage, now);
 	return true;
 }
 
-async function getDailyUsageInternal(kv: KVNamespace, today: string) {
-	if (cachedDailyUsage && cachedDailyUsage.date === today) {
-		return cachedDailyUsage;
-	}
+export type DailyUsage = {
+	count: number;
+	date: string;
+	remaining: number;
+};
 
-	const dailyUsageStr = await kv.get(DAILY_USAGE_KEY);
-	let dailyUsage = { count: 0, date: today, lastWrite: 0 };
-
-	if (dailyUsageStr) {
-		const stored = JSON.parse(dailyUsageStr);
-		if (stored.date === today) {
-			dailyUsage = { ...stored, lastWrite: stored.lastWrite || 0 };
+export async function getDailyUsage(kv: KVNamespace): Promise<DailyUsage> {
+	const today: string = new Date().toISOString().slice(0, 10);
+	const dailyKey: string = `${DAILY_USAGE_KEY}_${today}`;
+	let count: number = 0;
+	try {
+		const raw = await kv.get(dailyKey);
+		if (raw) {
+			count = parseInt(raw, 10) || 0;
 		}
+	} catch (err) {
+		logError("KV getDailyUsage error", err);
 	}
-
-	cachedDailyUsage = dailyUsage;
-	return dailyUsage;
-}
-
-async function updateDailyUsage(
-	kv: KVNamespace,
-	dailyUsage: { count: number; date: string; lastWrite: number },
-	now: number,
-) {
-	cachedDailyUsage = { ...dailyUsage, lastWrite: now };
-
-	if (now - dailyUsage.lastWrite > WRITE_DEBOUNCE_MS) {
-		await kv.put(DAILY_USAGE_KEY, JSON.stringify(cachedDailyUsage), {
-			expirationTtl: 86400,
-		});
-		cachedDailyUsage.lastWrite = now;
-	}
-}
-
-export async function getDailyUsage(kv: KVNamespace) {
-	const today = new Date().toDateString();
-	const dailyUsage = await getDailyUsageInternal(kv, today);
-
 	return {
-		count: dailyUsage.count,
-		date: dailyUsage.date,
-		remaining: DAILY_API_LIMIT - dailyUsage.count,
+		count,
+		date: today,
+		remaining: DAILY_API_LIMIT - count,
 	};
 }

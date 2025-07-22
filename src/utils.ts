@@ -73,3 +73,27 @@ export function validateApiResponse(response: string): {
 
 	return { isValid: true };
 }
+
+export function logError(context: string, err: unknown): void {
+	if (err instanceof Error) {
+		console.error(`[${context}]`, err.message, err.stack);
+	} else {
+		console.error(`[${context}]`, err);
+	}
+}
+
+export function logWarn(context: string, msg: unknown): void {
+	if (msg instanceof Error) {
+		console.warn(`[${context}]`, msg.message, msg.stack);
+	} else {
+		console.warn(`[${context}]`, msg);
+	}
+}
+
+export function logInfo(context: string, msg: unknown): void {
+	if (msg instanceof Error) {
+		console.info(`[${context}]`, msg.message, msg.stack);
+	} else {
+		console.info(`[${context}]`, msg);
+	}
+}

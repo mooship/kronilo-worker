@@ -7,6 +7,12 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { prettyJSON } from "hono/pretty-json";
 import { OpenAI } from "openai";
+import type {
+	ApiSuccess,
+	Bindings,
+	Metrics,
+	TranslateRequestBody,
+} from "./interfaces";
 import {
 	checkRateLimit,
 	DAILY_API_LIMIT,
@@ -16,13 +22,13 @@ import {
 } from "./rateLimit";
 import { renderer } from "./renderer";
 import { SYSTEM_PROMPT } from "./systemPrompt";
-import type {
-	ApiSuccess,
-	Bindings,
-	Metrics,
-	TranslateRequestBody,
-} from "./types";
-import { processInput, validateApiResponse } from "./utils";
+import {
+	logError,
+	logInfo,
+	logWarn,
+	processInput,
+	validateApiResponse,
+} from "./utils";
 
 const securityHeaders = {
 	"Content-Type": "application/json",
@@ -121,14 +127,18 @@ app.use(async (c, next) => {
 		c.req.header("CF-Connecting-IP") ||
 		c.req.header("x-forwarded-for") ||
 		"unknown";
-	console.log(`[${new Date().toISOString()}] ${method} ${url} from IP: ${ip}`);
+	logInfo(
+		"Request",
+		`[${new Date().toISOString()}] ${method} ${url} from IP: ${ip}`,
+	);
 	await next();
 });
 
 app.get("/", (c) => c.render(<h1>Kronilo - Cron Expression Translator</h1>));
 
 app.get("/health", async (c) => {
-	if (!c.env.RATE_LIMIT_KV) {
+	const env = c.env as Bindings;
+	if (!env.RATE_LIMIT_KV) {
 		return c.json(
 			{
 				status: "error",
@@ -137,7 +147,7 @@ app.get("/health", async (c) => {
 			500,
 		);
 	}
-	const dailyUsage = await getDailyUsage(c.env.RATE_LIMIT_KV);
+	const dailyUsage = await getDailyUsage(env.RATE_LIMIT_KV);
 	return c.json({
 		status: "ok",
 		rateLimit: {
@@ -155,11 +165,12 @@ app.get("/health", async (c) => {
 	});
 });
 
-const CACHE_VERSION = "v4";
+const CACHE_VERSION = "v5";
 const PRIMARY_MODEL = "google/gemini-2.0-flash-exp:free";
 const BACKUP_MODEL = "mistralai/mistral-7b-instruct:free";
 
 app.post("/api/translate", async (c) => {
+	const env = c.env as Bindings;
 	const metrics: Metrics = {
 		start: Date.now(),
 		cacheHit: false,
@@ -171,10 +182,10 @@ app.post("/api/translate", async (c) => {
 	};
 
 	try {
-		const OPENROUTER_API_KEY = c.env.OPENROUTER_API_KEY;
+		const OPENROUTER_API_KEY = env.OPENROUTER_API_KEY;
 		if (!OPENROUTER_API_KEY) {
 			metrics.error = "Missing OPENROUTER_API_KEY";
-			console.error("[metrics]", metrics);
+			logError("metrics", metrics);
 			return c.text(
 				JSON.stringify({
 					error: "Missing OPENROUTER_API_KEY environment variable",
@@ -192,7 +203,7 @@ app.post("/api/translate", async (c) => {
 
 		if (trimmedInput.length > 200) {
 			metrics.error = "Input too long";
-			console.error("[metrics]", metrics);
+			logError("metrics", metrics);
 			return c.text(
 				JSON.stringify({ error: "Input too long (max 200 characters)" }),
 				413,
@@ -201,7 +212,7 @@ app.post("/api/translate", async (c) => {
 		}
 		if (!trimmedInput) {
 			metrics.error = "Missing input field";
-			console.error("[metrics]", metrics);
+			logError("metrics", metrics);
 			return c.text(
 				JSON.stringify({ error: "Missing input field" }),
 				400,
@@ -213,19 +224,19 @@ app.post("/api/translate", async (c) => {
 			c.req.header("CF-Connecting-IP") ||
 			c.req.header("x-forwarded-for") ||
 			"unknown";
-		if (!(await checkRateLimit(ip, c.env.RATE_LIMIT_KV))) {
+		if (!(await checkRateLimit(ip, env.RATE_LIMIT_KV))) {
 			metrics.rateLimit = true;
-			const dailyUsage = await getDailyUsage(c.env.RATE_LIMIT_KV);
+			const dailyUsage = await getDailyUsage(env.RATE_LIMIT_KV);
 			const isDailyLimit = dailyUsage.remaining <= 0;
 			const errorMessage = isDailyLimit
 				? "Daily API limit reached. Please try again tomorrow."
 				: "Rate limit exceeded. Please try again later.";
-			console.warn(
-				`[RateLimit] IP: ${ip}, Type: ${isDailyLimit ? "daily" : "perUser"}, Usage:`,
-				dailyUsage,
+			logWarn(
+				"RateLimit",
+				`IP: ${ip}, Type: ${isDailyLimit ? "daily" : "perUser"}, Usage: ${JSON.stringify(dailyUsage)}`,
 			);
 			metrics.error = errorMessage;
-			console.error("[metrics]", metrics);
+			logError("metrics", metrics);
 			return c.text(
 				JSON.stringify({
 					error: errorMessage,
@@ -252,7 +263,7 @@ app.post("/api/translate", async (c) => {
 		try {
 			cached = await cache.match(cacheKey);
 		} catch (cacheErr) {
-			console.error("[CacheError]", cacheErr);
+			logError("CacheError", cacheErr);
 		}
 
 		if (cached) {
@@ -262,10 +273,10 @@ app.post("/api/translate", async (c) => {
 				const cachedData = (await cached.json()) as ApiSuccess;
 				metrics.model = cachedData.model || null;
 				metrics.attempts = 0;
-				console.info("[metrics]", metrics);
+				logInfo("metrics", metrics);
 				return c.text(JSON.stringify(cachedData), 200, securityHeaders);
 			} catch (cacheParseErr) {
-				console.error("[CacheParseError]", cacheParseErr);
+				logError("CacheParseError", cacheParseErr);
 			}
 		}
 
@@ -329,20 +340,18 @@ app.post("/api/translate", async (c) => {
 				lastError = err;
 				if (!(timeoutError && i < 2)) {
 					if (err instanceof Error) {
-						console.error(
-							`Primary model ${PRIMARY_MODEL} attempt ${i} failed:`,
-							err.message,
-						);
+						logError(`Primary model ${PRIMARY_MODEL} attempt ${i} failed`, err);
 					} else {
-						console.error(
+						logError(
 							`Primary model ${PRIMARY_MODEL} attempt ${i} failed with unknown error`,
 							err,
 						);
 					}
 					break;
 				}
-				console.warn(
-					`Primary model ${PRIMARY_MODEL} timed out, retrying (attempt ${i + 1})...`,
+				logWarn(
+					`Primary model ${PRIMARY_MODEL} timed out`,
+					`Retrying (attempt ${i + 1})...`,
 				);
 				await delay(250);
 			}
@@ -356,12 +365,9 @@ app.post("/api/translate", async (c) => {
 			} catch (err: unknown) {
 				lastError = err;
 				if (err instanceof Error) {
-					console.error(
-						`Backup model ${BACKUP_MODEL} attempt 1 failed:`,
-						err.message,
-					);
+					logError(`Backup model ${BACKUP_MODEL} attempt 1 failed`, err);
 				} else {
-					console.error(
+					logError(
 						`Backup model ${BACKUP_MODEL} attempt 1 failed with unknown error`,
 						err,
 					);
@@ -375,7 +381,7 @@ app.post("/api/translate", async (c) => {
 
 		if (!result) {
 			metrics.error = "Model translation failed";
-			console.error("[metrics]", metrics);
+			logError("metrics", metrics);
 			return c.text(
 				JSON.stringify({
 					error:
@@ -400,19 +406,18 @@ app.post("/api/translate", async (c) => {
 				}),
 			);
 		} catch (cachePutErr) {
-			console.error("[CachePutError]", cachePutErr);
+			logError("CachePutError", cachePutErr);
 		}
 
-		console.info("[metrics]", metrics);
+		logInfo("metrics", metrics);
 		return c.text(JSON.stringify(result), 200, securityHeaders);
 	} catch (err: unknown) {
 		if (err instanceof Error) {
-			console.error("Error in /api/translate:", err.message);
-			console.error(err.stack);
+			logError("Error in /api/translate", err);
 		} else {
-			console.error("Unknown error in /api/translate:", err);
+			logError("Unknown error in /api/translate", err);
 		}
-		console.error("[metrics]", { error: err });
+		logError("metrics", { error: err });
 		return c.text(
 			JSON.stringify({ error: "Internal server error", details: err }),
 			500,
