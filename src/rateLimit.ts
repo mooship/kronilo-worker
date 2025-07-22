@@ -1,42 +1,20 @@
 import type { KVNamespace } from "@cloudflare/workers-types";
 
-/**
- * Rate limiting constants and functions for managing API usage.
- */
-
 export const RATE_LIMIT_MAX = 2;
 export const RATE_LIMIT_WINDOW = 24 * 60 * 60 * 1000;
 export const DAILY_API_LIMIT = 20;
 export const BURST_WINDOW_MS = 60 * 1000;
 export const BURST_LIMIT = 2;
 
-/**
- * Key used for storing daily usage in KV.
- */
-
 const DAILY_USAGE_KEY = "daily_usage";
-
-/**
- * Cached daily usage object to reduce KV reads.
- */
 
 let cachedDailyUsage: {
 	count: number;
 	date: string;
 	lastWrite: number;
 } | null = null;
-/**
- * Debounce time for writing daily usage to KV in milliseconds.
- */
 
 const WRITE_DEBOUNCE_MS = 2000;
-
-/**
- * Checks if the given IP is within rate limits and updates usage counters.
- * @param ip - The user's IP address.
- * @param kv - The KVNamespace for storing rate limit data.
- * @returns True if allowed, false if rate limited.
- */
 
 export async function checkRateLimit(
 	ip: string,
@@ -81,13 +59,6 @@ export async function checkRateLimit(
 	return true;
 }
 
-/**
- * Internal helper to get daily usage from KV or cache.
- * @param kv - The KVNamespace.
- * @param today - Today's date string.
- * @returns Daily usage object.
- */
-
 async function getDailyUsageInternal(kv: KVNamespace, today: string) {
 	if (cachedDailyUsage && cachedDailyUsage.date === today) {
 		return cachedDailyUsage;
@@ -107,13 +78,6 @@ async function getDailyUsageInternal(kv: KVNamespace, today: string) {
 	return dailyUsage;
 }
 
-/**
- * Updates daily usage in KV if debounce time has passed.
- * @param kv - The KVNamespace.
- * @param dailyUsage - The daily usage object.
- * @param now - Current timestamp.
- */
-
 async function updateDailyUsage(
 	kv: KVNamespace,
 	dailyUsage: { count: number; date: string; lastWrite: number },
@@ -128,12 +92,6 @@ async function updateDailyUsage(
 		cachedDailyUsage.lastWrite = now;
 	}
 }
-
-/**
- * Gets the current daily usage and remaining API calls for today.
- * @param kv - The KVNamespace.
- * @returns Object with count, date, and remaining calls.
- */
 
 export async function getDailyUsage(kv: KVNamespace) {
 	const today = new Date().toDateString();

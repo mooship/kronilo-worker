@@ -1,30 +1,4 @@
-/**
- * Utility functions for processing cron expressions and input sanitization.
- */
-
-export const SYSTEM_PROMPT = `
-You are a strict utility that converts plain English into a valid 5-field Unix cron expression.
-
-Only output a single line in this format:
-* * * * *
-
-If the input is invalid or untranslatable, respond with:
-invalid
-
-Do not explain, comment, or include any extra text.
-`.trim();
-
-/**
- * Regex to match all whitespace characters.
- */
-
 export const WHITESPACE_REGEX = /\s+/g;
-
-/**
- * Removes non-printable and control characters from input string.
- * @param input - The input string to sanitize.
- * @returns Sanitized string with only printable characters.
- */
 
 export function sanitizeInput(input: string): string {
 	return Array.from(input)
@@ -32,23 +6,11 @@ export function sanitizeInput(input: string): string {
 		.join("");
 }
 
-/**
- * Processes input by trimming, lowercasing, normalizing whitespace, and sanitizing.
- * @param input - The input string to process.
- * @returns Processed string.
- */
-
 export function processInput(input: string): string {
 	return sanitizeInput(
 		input.trim().toLowerCase().replace(WHITESPACE_REGEX, " "),
 	);
 }
-
-/**
- * Validates if a string is a valid 5-field Unix cron expression.
- * @param cron - The cron string to validate.
- * @returns True if valid, false otherwise.
- */
 
 export function isValidCron(cron: string): boolean {
 	const trimmed = cron.trim();
@@ -78,12 +40,6 @@ export function isValidCron(cron: string): boolean {
 		dowPattern.test(dayOfWeek)
 	);
 }
-
-/**
- * Validates the API response to ensure it is a valid cron expression and does not contain unwanted patterns.
- * @param response - The response string to validate.
- * @returns Object with isValid boolean and optional error message.
- */
 
 export function validateApiResponse(response: string): {
 	isValid: boolean;

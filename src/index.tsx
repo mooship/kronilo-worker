@@ -1,8 +1,5 @@
 import type { CacheStorage } from "@cloudflare/workers-types";
 
-/**
- * Cloudflare Worker global cache storage.
- */
 declare const caches: CacheStorage;
 
 import { swaggerUI } from "@hono/swagger-ui";
@@ -18,12 +15,15 @@ import {
 	RATE_LIMIT_WINDOW,
 } from "./rateLimit";
 import { renderer } from "./renderer";
-import type { ApiSuccess, Bindings } from "./types";
-import { processInput, SYSTEM_PROMPT, validateApiResponse } from "./utils";
+import { SYSTEM_PROMPT } from "./systemPrompt";
+import type {
+	ApiSuccess,
+	Bindings,
+	Metrics,
+	TranslateRequestBody,
+} from "./types";
+import { processInput, validateApiResponse } from "./utils";
 
-/**
- * Security headers applied to all API responses for improved security.
- */
 const securityHeaders = {
 	"Content-Type": "application/json",
 	"X-Content-Type-Options": "nosniff",
@@ -34,9 +34,6 @@ const securityHeaders = {
 		"default-src 'none'; frame-ancestors 'none'; base-uri 'none';",
 };
 
-/**
- * OpenAPI documentation for Kronilo API endpoints.
- */
 const openApiDoc = {
 	openapi: "3.0.0",
 	info: {
@@ -48,17 +45,13 @@ const openApiDoc = {
 		"/": {
 			get: {
 				summary: "Root endpoint",
-				responses: {
-					"200": { description: "HTML page" },
-				},
+				responses: { "200": { description: "HTML page" } },
 			},
 		},
 		"/health": {
 			get: {
 				summary: "Health check",
-				responses: {
-					"200": { description: "OK" },
-				},
+				responses: { "200": { description: "OK" } },
 			},
 		},
 		"/api/translate": {
@@ -70,14 +63,7 @@ const openApiDoc = {
 						"application/json": {
 							schema: {
 								type: "object",
-								properties: {
-									input: { type: "string" },
-									language: {
-										type: "string",
-										description:
-											"ISO language code (e.g. 'en', 'fr', 'de', 'es', 'it', 'nl', 'pt-BR', 'pt-PT'). Optional, defaults to 'en'.",
-									},
-								},
+								properties: { input: { type: "string" } },
 								required: ["input"],
 							},
 						},
@@ -94,10 +80,6 @@ const openApiDoc = {
 										cron: { type: "string" },
 										model: { type: "string" },
 										input: { type: "string" },
-										language: {
-											type: "string",
-											description: "ISO language code used for translation.",
-										},
 									},
 								},
 							},
@@ -112,26 +94,11 @@ const openApiDoc = {
 	},
 };
 
-/**
- * Main Hono application instance for Kronilo Worker.
- */
 const app = new Hono<{ Bindings: Bindings }>();
 
-/**
- * Serves the OpenAPI documentation as JSON.
- * @route GET /doc
- */
 app.get("/doc", (c) => c.json(openApiDoc));
-
-/**
- * Serves the Swagger UI for API documentation.
- * @route GET /ui
- */
 app.get("/ui", swaggerUI({ url: "/doc" }));
 
-/**
- * Enables CORS for allowed origins and methods.
- */
 app.use(
 	"/*",
 	cors({
@@ -145,15 +112,9 @@ app.use(
 	}),
 );
 
-/**
- * Middleware for server-side rendering and pretty JSON responses.
- */
 app.use(renderer);
 app.use(prettyJSON());
 
-/**
- * Logs incoming requests with method, URL, and IP address.
- */
 app.use(async (c, next) => {
 	const { method, url } = c.req;
 	const ip =
@@ -164,18 +125,8 @@ app.use(async (c, next) => {
 	await next();
 });
 
-/**
- * Root endpoint serving the main HTML page.
- * @route GET /
- */
-app.get("/", (c) => {
-	return c.render(<h1>Kronilo - Cron Expression Translator</h1>);
-});
+app.get("/", (c) => c.render(<h1>Kronilo - Cron Expression Translator</h1>));
 
-/**
- * Health check endpoint providing rate limit status.
- * @route GET /health
- */
 app.get("/health", async (c) => {
 	if (!c.env.RATE_LIMIT_KV) {
 		return c.json(
@@ -204,52 +155,23 @@ app.get("/health", async (c) => {
 	});
 });
 
-/**
- * Cache version for translation results.
- */
 const CACHE_VERSION = "v4";
-/**
- * Primary model used for translation.
- */
 const PRIMARY_MODEL = "google/gemini-2.0-flash-exp:free";
-/**
- * Backup model used if primary model fails.
- */
 const BACKUP_MODEL = "mistralai/mistral-7b-instruct:free";
 
-/**
- * Translates plain English to a cron expression using AI models.
- * Handles caching, rate limiting, and model fallback.
- * @route POST /api/translate
- * @param {string} input - The plain English input to translate.
- * @param {string} [language] - Optional ISO language code.
- * @returns {ApiSuccess|Error} Translation result or error response.
- */
 app.post("/api/translate", async (c) => {
+	const metrics: Metrics = {
+		start: Date.now(),
+		cacheHit: false,
+		model: null,
+		attempts: 0,
+		error: null,
+		rateLimit: false,
+		timeout: false,
+	};
+
 	try {
-		/**
-		 * Metrics for logging and debugging translation requests.
-		 */
-		const metrics: {
-			start: number;
-			cacheHit: boolean;
-			model: string | null;
-			attempts: number;
-			error: string | null;
-			rateLimit: boolean;
-			timeout: boolean;
-		} = {
-			start: Date.now(),
-			cacheHit: false,
-			model: null,
-			attempts: 0,
-			error: null,
-			rateLimit: false,
-			timeout: false,
-		};
-
 		const OPENROUTER_API_KEY = c.env.OPENROUTER_API_KEY;
-
 		if (!OPENROUTER_API_KEY) {
 			metrics.error = "Missing OPENROUTER_API_KEY";
 			console.error("[metrics]", metrics);
@@ -262,18 +184,12 @@ app.post("/api/translate", async (c) => {
 			);
 		}
 
-		const { input = "", language = "en" } = await c.req.json<{
-			input?: string;
-			language?: string;
-		}>();
-		let trimmedInput = processInput(input);
-		trimmedInput = trimmedInput
+		const { input = "" } = await c.req.json<TranslateRequestBody>();
+		const trimmedInput = processInput(input)
 			.replace(/[<>"'`]/g, "")
 			.replace(/\s+/g, " ")
 			.trim();
-		const trimmedLanguage = (
-			typeof language === "string" ? language.trim().toLowerCase() : "en"
-		).slice(0, 8);
+
 		if (trimmedInput.length > 200) {
 			metrics.error = "Input too long";
 			console.error("[metrics]", metrics);
@@ -331,16 +247,19 @@ app.post("/api/translate", async (c) => {
 			`https://cache.kronilo/translate?version=${CACHE_VERSION}&input=${encodeURIComponent(trimmedInput)}`,
 		);
 		const cache = (caches as unknown as { default: Cache }).default;
-		let cached: unknown;
+
+		let cached: Response | undefined;
 		try {
 			cached = await cache.match(cacheKey);
 		} catch (cacheErr) {
 			console.error("[CacheError]", cacheErr);
 		}
+
 		if (cached) {
 			metrics.cacheHit = true;
 			try {
-				const cachedData = await (cached as Response).json();
+				// Explicitly typed
+				const cachedData = (await cached.json()) as ApiSuccess;
 				metrics.model = cachedData.model || null;
 				metrics.attempts = 0;
 				console.info("[metrics]", metrics);
@@ -361,51 +280,31 @@ app.post("/api/translate", async (c) => {
 		});
 
 		let timeoutError = false;
-		/**
-		 * Makes an API call to the specified model to translate input.
-		 * @param {string} model - Model name to use for translation.
-		 * @param {number} attempt - Attempt number for retry logic.
-		 * @returns {Promise<ApiSuccess>} Translation result.
-		 */
+
 		const makeApiCall = async (
 			model: string,
 			attempt: number,
 		): Promise<ApiSuccess> => {
 			try {
-				const userPrompt = `Language: ${trimmedLanguage}\n${trimmedInput}`;
 				const response = await openai.chat.completions.create(
 					{
 						model,
 						messages: [
 							{ role: "system", content: SYSTEM_PROMPT },
-							{ role: "user", content: userPrompt },
+							{ role: "user", content: trimmedInput },
 						],
 						max_tokens: 50,
 						temperature: attempt > 1 ? 0.1 : 0,
 					},
-					{
-						timeout: 5_000,
-					},
+					{ timeout: 5_000 },
 				);
 				const output = response.choices?.[0]?.message?.content?.trim() ?? "";
 				const validation = validateApiResponse(output);
-				if (!validation.isValid) {
+				if (!validation.isValid)
 					throw new Error(validation.error || "Invalid response format");
-				}
-				return {
-					cron: output,
-					model,
-					input: trimmedInput,
-					language: trimmedLanguage,
-				};
-			} catch (err) {
-				if (
-					typeof err === "object" &&
-					err !== null &&
-					"message" in err &&
-					typeof (err as { message?: string }).message === "string" &&
-					(err as { message?: string }).message?.includes("timeout")
-				) {
+				return { cron: output, model, input: trimmedInput };
+			} catch (err: unknown) {
+				if (err instanceof Error && err.message.includes("timeout")) {
 					timeoutError = true;
 				}
 				throw err;
@@ -417,11 +316,6 @@ app.post("/api/translate", async (c) => {
 		let usedModel: string | null = null;
 		let attempts = 0;
 
-		/**
-		 * Delays execution for a given number of milliseconds.
-		 * @param {number} ms - Milliseconds to delay.
-		 * @returns {Promise<void>}
-		 */
 		const delay = (ms: number) =>
 			new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -431,13 +325,20 @@ app.post("/api/translate", async (c) => {
 				result = await makeApiCall(PRIMARY_MODEL, i);
 				usedModel = PRIMARY_MODEL;
 				break;
-			} catch (err) {
+			} catch (err: unknown) {
 				lastError = err;
 				if (!(timeoutError && i < 2)) {
-					console.error(
-						`Primary model ${PRIMARY_MODEL} attempt ${i} failed:`,
-						err,
-					);
+					if (err instanceof Error) {
+						console.error(
+							`Primary model ${PRIMARY_MODEL} attempt ${i} failed:`,
+							err.message,
+						);
+					} else {
+						console.error(
+							`Primary model ${PRIMARY_MODEL} attempt ${i} failed with unknown error`,
+							err,
+						);
+					}
 					break;
 				}
 				console.warn(
@@ -452,9 +353,19 @@ app.post("/api/translate", async (c) => {
 			try {
 				result = await makeApiCall(BACKUP_MODEL, 1);
 				usedModel = BACKUP_MODEL;
-			} catch (err) {
+			} catch (err: unknown) {
 				lastError = err;
-				console.error(`Backup model ${BACKUP_MODEL} attempt 1 failed:`, err);
+				if (err instanceof Error) {
+					console.error(
+						`Backup model ${BACKUP_MODEL} attempt 1 failed:`,
+						err.message,
+					);
+				} else {
+					console.error(
+						`Backup model ${BACKUP_MODEL} attempt 1 failed with unknown error`,
+						err,
+					);
+				}
 			}
 		}
 
@@ -473,7 +384,7 @@ app.post("/api/translate", async (c) => {
 						input: trimmedInput,
 						model: usedModel,
 						attempts,
-						lastError: lastError,
+						lastError,
 					},
 				}),
 				400,
@@ -485,10 +396,7 @@ app.post("/api/translate", async (c) => {
 			await cache.put(
 				cacheKey,
 				new Response(JSON.stringify(result), {
-					headers: {
-						...securityHeaders,
-						"Cache-Control": "max-age=1814400",
-					},
+					headers: { ...securityHeaders, "Cache-Control": "max-age=1814400" },
 				}),
 			);
 		} catch (cachePutErr) {
@@ -497,8 +405,13 @@ app.post("/api/translate", async (c) => {
 
 		console.info("[metrics]", metrics);
 		return c.text(JSON.stringify(result), 200, securityHeaders);
-	} catch (err) {
-		console.error("Error in /api/translate:", err);
+	} catch (err: unknown) {
+		if (err instanceof Error) {
+			console.error("Error in /api/translate:", err.message);
+			console.error(err.stack);
+		} else {
+			console.error("Unknown error in /api/translate:", err);
+		}
 		console.error("[metrics]", { error: err });
 		return c.text(
 			JSON.stringify({ error: "Internal server error", details: err }),
