@@ -1,4 +1,5 @@
 import type { KVNamespace } from "@cloudflare/workers-types";
+import type { IpAddress, Timestamps } from "./types";
 import { logError } from "./utils";
 
 export const RATE_LIMIT_MAX: number = 5;
@@ -11,9 +12,6 @@ const DAILY_USAGE_KEY: string = "daily_usage";
 const DAILY_USAGE_TTL: number = 86400;
 const USER_WINDOW_TTL: number = Math.ceil(RATE_LIMIT_WINDOW / 1000);
 const USER_KEY_PREFIX: string = "rate_limit:ip:";
-
-type Timestamps = number[];
-type IpAddress = string;
 
 export async function checkRateLimit(
 	ip: IpAddress,

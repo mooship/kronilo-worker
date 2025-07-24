@@ -12,9 +12,6 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id: string) {
-          if (!id.includes("node_modules")) {
-						return;
-					}
           if (id.includes("node_modules/hono")) {
             return "hono";
           }
@@ -23,9 +20,6 @@ export default defineConfig({
           }
           if (id.includes("node_modules/openai")) {
             return "openai";
-          }
-          if (id.includes("node_modules/@cloudflare")) {
-            return "cloudflare";
           }
 
           return "vendor";
