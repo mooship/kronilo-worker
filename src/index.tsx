@@ -269,7 +269,6 @@ app.post("/api/translate", async (c) => {
 		if (cached) {
 			metrics.cacheHit = true;
 			try {
-				// Explicitly typed
 				const cachedData = (await cached.json()) as ApiSuccess;
 				metrics.model = cachedData.model || null;
 				metrics.attempts = 0;
