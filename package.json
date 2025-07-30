@@ -19,7 +19,7 @@
 	},
 	"dependencies": {
 		"@hono/swagger-ui": "^0.5.2",
-		"hono": "^4.8.8",
+		"hono": "^4.8.10",
 		"openai": "^5.10.2"
 	},
 	"devDependencies": {
