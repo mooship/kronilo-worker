@@ -4,17 +4,15 @@
 	"type": "module",
 	"author": "Timothy Brits",
 	"license": "AGPL",
-	"packageManager": "bun@1.2.19",
+	"packageManager": "npm@11.5.1",
 	"engines": {
-		"bun": ">=1.2.19"
+		"node": ">=22.17.1 <=24.4.1"
 	},
-	
 	"scripts": {
-		"start": "bun run dev",
 		"dev": "vite",
 		"build": "vite build",
-		"preview": "bun run build && vite preview",
-		"deploy": "bun run build && wrangler deploy",
+		"preview": "$npm_execpath run build && vite preview",
+		"deploy": "$npm_execpath run build && wrangler deploy",
 		"cf-typegen": "wrangler types --env-interface CloudflareBindings",
 		"format": "biome format . --write",
 		"lint": "biome lint . --write"
