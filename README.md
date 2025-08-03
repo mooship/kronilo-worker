@@ -7,7 +7,7 @@ A Cloudflare Worker that translates natural language into valid Unix cron expres
 1. Install dependencies:
 
 ```txt
-npm install
+bun install
 ```
 
 2. Set up your OpenRouter API key in `.dev.vars`:
@@ -19,13 +19,13 @@ OPENROUTER_API_KEY=your_actual_api_key_here
 3. Run locally:
 
 ```txt
-npm run dev
+bun run dev
 ```
 
 4. Deploy to Cloudflare:
 
 ```txt
-npm run deploy
+bun run deploy
 ```
 
 ## API Usage
@@ -92,7 +92,7 @@ wrangler secret put OPENROUTER_API_KEY
 [For generating/synchronizing types based on your Worker configuration run](https://developers.cloudflare.com/workers/wrangler/commands/#types):
 
 ```txt
-npm run cf-typegen
+bun run cf-typegen
 ```
 
 Pass the `CloudflareBindings` as generics when instantiation `Hono`:
